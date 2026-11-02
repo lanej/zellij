@@ -1685,6 +1685,12 @@ impl SessionState {
     pub fn client_ids(&self) -> Vec<ClientId> {
         self.clients.keys().copied().collect()
     }
+    pub fn interactive_client_ids(&self) -> Vec<ClientId> {
+        self.clients
+            .iter()
+            .filter_map(|(client_id, client_data)| client_data.map(|_| *client_id))
+            .collect()
+    }
     pub fn watcher_client_ids(&self) -> Vec<ClientId> {
         self.watchers.keys().copied().collect()
     }
@@ -4362,7 +4368,9 @@ pub fn start_server_impl(
                     .unwrap();
             },
             ServerInstruction::UnblockInputThread => {
-                let client_ids = session_state.read().unwrap().client_ids();
+                // CLI connections receive completion from their own route thread. A broadcast
+                // from another client's pane closure must not finish a pending CLI action.
+                let client_ids = session_state.read().unwrap().interactive_client_ids();
                 for client_id in client_ids {
                     send_to_client!(
                         client_id,
