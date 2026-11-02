@@ -4526,13 +4526,18 @@ pub fn start_server_impl(
             },
             ServerInstruction::KillSession => {
                 let client_ids = session_state.read().unwrap().client_ids();
+                for client_id in &client_ids {
+                    os_input
+                        .send_to_client(
+                            *client_id,
+                            ServerToClientMsg::Exit {
+                                exit_reason: ExitReason::Normal,
+                            },
+                        )
+                        .non_fatal();
+                }
+                os_input.flush_clients(&client_ids).non_fatal();
                 for client_id in client_ids {
-                    let _ = os_input.send_to_client(
-                        client_id,
-                        ServerToClientMsg::Exit {
-                            exit_reason: ExitReason::Normal,
-                        },
-                    );
                     remove_client!(client_id, os_input, session_state, session_data);
                 }
                 break;

@@ -5,6 +5,105 @@ fn make_server() -> ServerOsInputOutput {
     get_server_os_input().expect("failed to create server os input")
 }
 
+#[cfg(unix)]
+fn connect_output_client(
+    server: &mut ServerOsInputOutput,
+    client_id: ClientId,
+) -> IpcReceiverWithContext<ServerToClientMsg> {
+    use interprocess::local_socket::prelude::*;
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("client.sock");
+    let listener = zellij_utils::consts::ipc_bind(&path).unwrap();
+    let client = zellij_utils::consts::ipc_connect(&path).unwrap();
+    let stream = listener.accept().unwrap();
+    server.register_client_with_reply(client_id, stream).unwrap();
+    IpcReceiverWithContext::new(client)
+}
+
+#[cfg(unix)]
+#[test]
+fn dotfiles_flush_clients_delivers_queued_exit_before_shutdown() {
+    let mut server = make_server();
+    let mut client = connect_output_client(&mut server, 1);
+    // Fill the real socket buffer so the sender cannot reach Exit until the client reads.
+    let render = "x".repeat(8 * 1024 * 1024);
+    server
+        .send_to_client(
+            1,
+            ServerToClientMsg::Render {
+                content: render.clone(),
+            },
+        )
+        .unwrap();
+    server
+        .send_to_client(
+            1,
+            ServerToClientMsg::Exit {
+                exit_reason: ExitReason::Normal,
+            },
+        )
+        .unwrap();
+    let (started_tx, started_rx) = channels::bounded(1);
+    let (finished_tx, finished_rx) = channels::bounded(1);
+    let worker = std::thread::spawn(move || {
+        started_tx.send(()).unwrap();
+        let result = server.flush_clients(&[1]);
+        finished_tx.send(result).unwrap();
+        server.remove_client(1).unwrap();
+    });
+    started_rx.recv().unwrap();
+    assert!(matches!(
+        finished_rx.recv_timeout(Duration::from_millis(20)),
+        Err(channels::RecvTimeoutError::Timeout)
+    ));
+    assert_eq!(
+        client.recv_server_msg().unwrap().0,
+        ServerToClientMsg::Render { content: render }
+    );
+    assert_eq!(
+        client.recv_server_msg().unwrap().0,
+        ServerToClientMsg::Exit {
+            exit_reason: ExitReason::Normal
+        }
+    );
+    finished_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap()
+        .unwrap();
+    worker.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn dotfiles_flush_clients_bounds_stalled_peers_and_reports_closed_streams() {
+    let mut server = make_server();
+    let stalled_one = connect_output_client(&mut server, 1);
+    let stalled_two = connect_output_client(&mut server, 2);
+    let closed = connect_output_client(&mut server, 3);
+    drop(closed);
+    let render = ServerToClientMsg::Render {
+        content: "x".repeat(8 * 1024 * 1024),
+    };
+    server.send_to_client(1, render.clone()).unwrap();
+    server.send_to_client(2, render).unwrap();
+    server
+        .send_to_client(
+            3,
+            ServerToClientMsg::Exit {
+                exit_reason: ExitReason::Normal,
+            },
+        )
+        .unwrap();
+    let started = Instant::now();
+    let err = server.flush_clients(&[1, 2, 3]).unwrap_err();
+    assert!(started.elapsed() < Duration::from_millis(900));
+    let error = format!("{err:#}");
+    assert!(error.contains("client 1"));
+    assert!(error.contains("client 2"));
+    assert!(error.contains("client 3"));
+    drop((stalled_one, stalled_two));
+}
+
 // --- Cross-platform command helpers ---
 
 #[allow(dead_code)]

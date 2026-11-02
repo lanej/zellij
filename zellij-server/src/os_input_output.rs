@@ -34,6 +34,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
     },
+    time::{Duration, Instant},
 };
 
 pub use async_trait::async_trait;
@@ -231,15 +232,21 @@ fn build_command(
 // knows what happened.
 const CLIENT_BUFFER_LIMIT: usize = 5000;
 
+#[derive(Debug)]
+enum ClientBufferMessage {
+    Message(ServerToClientMsg),
+    Flush(channels::Sender<()>),
+}
+
 #[derive(Clone)]
 struct ClientBuffer {
-    sender: channels::Sender<ServerToClientMsg>,
+    sender: channels::Sender<ClientBufferMessage>,
     queued: Arc<AtomicUsize>,
     limit: usize,
 }
 
 struct ClientBufferReceiver {
-    receiver: channels::Receiver<ServerToClientMsg>,
+    receiver: channels::Receiver<ClientBufferMessage>,
     queued: Arc<AtomicUsize>,
 }
 
@@ -262,17 +269,34 @@ impl ClientBuffer {
             self.queued.fetch_sub(1, Ordering::AcqRel);
             return Err(TrySendError::Full(msg));
         }
-        self.sender.send(msg).map_err(|err| {
-            self.queued.fetch_sub(1, Ordering::AcqRel);
-            TrySendError::Disconnected(err.0)
-        })
+        self.sender
+            .send(ClientBufferMessage::Message(msg))
+            .map_err(|err| {
+                self.queued.fetch_sub(1, Ordering::AcqRel);
+                let ClientBufferMessage::Message(msg) = err.0 else {
+                    unreachable!("sending a client message returned a flush barrier")
+                };
+                TrySendError::Disconnected(msg)
+            })
+    }
+
+    fn flush(&self) -> Result<channels::Receiver<()>> {
+        let (completed, completion) = channels::bounded(1);
+        // The shutdown barrier carries no client payload and must follow every
+        // queued message, even when the message budget is full.
+        self.sender
+            .send(ClientBufferMessage::Flush(completed))
+            .context("failed to queue client flush")?;
+        Ok(completion)
     }
 }
 
 impl ClientBufferReceiver {
-    fn recv(&self) -> Option<ServerToClientMsg> {
+    fn recv(&self) -> Option<ClientBufferMessage> {
         let msg = self.receiver.recv().ok()?;
-        self.queued.fetch_sub(1, Ordering::AcqRel);
+        if matches!(&msg, ClientBufferMessage::Message(_)) {
+            self.queued.fetch_sub(1, Ordering::AcqRel);
+        }
         Some(msg)
     }
 }
@@ -298,11 +322,19 @@ impl ClientSender {
         let (client_buffer_sender, client_buffer_receiver) = client_buffer(CLIENT_BUFFER_LIMIT);
         std::thread::spawn(move || {
             let err_context = || format!("failed to send message to client {client_id}");
-            while let Some(msg) = client_buffer_receiver.recv() {
-                sender
-                    .send_server_msg(msg)
-                    .with_context(err_context)
-                    .non_fatal();
+            while let Some(message) = client_buffer_receiver.recv() {
+                match message {
+                    ClientBufferMessage::Message(msg) => {
+                        if let Err(err) = sender.send_server_msg(msg).with_context(err_context) {
+                            Err::<(), _>(err).non_fatal();
+                            // A flush barrier must not report success after a failed write.
+                            return;
+                        }
+                    },
+                    ClientBufferMessage::Flush(completed) => {
+                        let _ = completed.send(());
+                    },
+                }
             }
             let _ = sender.send_server_msg(ServerToClientMsg::Exit {
                 exit_reason: ExitReason::Disconnect,
@@ -333,6 +365,12 @@ impl ClientSender {
                 Err(err)
             })
             .with_context(err_context)
+    }
+
+    fn flush(&self) -> Result<channels::Receiver<()>> {
+        self.client_buffer_sender
+            .flush()
+            .with_context(|| format!("failed to queue flush for client {}", self.client_id))
     }
 }
 
@@ -399,6 +437,10 @@ pub trait ServerOsApi: Send + Sync {
     /// Returns a [`Box`] pointer to this [`ServerOsApi`] struct.
     fn box_clone(&self) -> Box<dyn ServerOsApi>;
     fn send_to_client(&self, client_id: ClientId, msg: ServerToClientMsg) -> Result<()>;
+    /// Wait for queued messages to reach the clients' IPC streams before server shutdown.
+    fn flush_clients(&self, _client_ids: &[ClientId]) -> Result<()> {
+        Ok(())
+    }
     fn register_client(
         &mut self,
         client_id: ClientId,
@@ -525,6 +567,39 @@ impl ServerOsApi for ServerOsInputOutput {
             sender.send_or_buffer(msg).with_context(err_context)
         } else {
             Ok(())
+        }
+    }
+
+    fn flush_clients(&self, client_ids: &[ClientId]) -> Result<()> {
+        // One deadline for the whole session: a stalled terminal must not prevent shutdown
+        // or make the shutdown delay grow with the number of attached clients.
+        let deadline = Instant::now() + Duration::from_millis(500);
+        let completions = {
+            let senders = self.client_senders.lock().to_anyhow()?;
+            client_ids
+                .iter()
+                .filter_map(|client_id| {
+                    senders
+                        .get(client_id)
+                        .map(|sender| (*client_id, sender.flush()))
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut failures = vec![];
+        for (client_id, completion) in completions {
+            let result = completion.and_then(|completion| {
+                completion
+                    .recv_deadline(deadline)
+                    .with_context(|| format!("failed to flush client {client_id}"))
+            });
+            if let Err(err) = result {
+                failures.push(format!("{err:#}"));
+            }
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow!("{}", failures.join("; ")))
         }
     }
 
