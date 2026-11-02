@@ -1194,8 +1194,7 @@ impl TiledPanes {
         self.connected_clients
             .borrow()
             .iter()
-            .next()
-            .and_then(|first_client_id| self.active_panes.get(first_client_id).copied())
+            .find_map(|client_id| self.active_panes.get(client_id).copied())
     }
     pub fn focused_pane_id(&self, client_id: ClientId) -> Option<PaneId> {
         self.active_panes.get(&client_id).copied()
