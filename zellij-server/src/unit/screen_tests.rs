@@ -363,6 +363,7 @@ fn create_new_screen_with_capture(
     let screen = Screen::new(
         bus,
         &client_attributes,
+        1, // initial client
         max_panes,
         mode_info,
         draw_pane_frames,
@@ -451,6 +452,7 @@ impl MockScreen {
         let mut config = self.config.clone();
         config.options.advanced_mouse_actions = Some(self.advanced_mouse_actions);
         let client_attributes = self.client_attributes.clone();
+        let initial_client_id = self.main_client_id;
         let screen_bus = Bus::new(
             vec![self.screen_receiver.take().unwrap()],
             Some(&self.to_screen.clone()),
@@ -473,6 +475,7 @@ impl MockScreen {
                     screen_bus,
                     None,
                     client_attributes,
+                    initial_client_id,
                     config,
                     debug,
                     Box::new(Layout::default()),
@@ -537,6 +540,7 @@ impl MockScreen {
     pub fn run_without_tabs(&mut self) -> std::thread::JoinHandle<()> {
         let config = self.config.clone();
         let client_attributes = self.client_attributes.clone();
+        let initial_client_id = self.main_client_id;
         let screen_bus = Bus::new(
             vec![self.screen_receiver.take().unwrap()],
             Some(&self.to_screen.clone()),
@@ -558,6 +562,7 @@ impl MockScreen {
                     screen_bus,
                     None,
                     client_attributes,
+                    initial_client_id,
                     config,
                     false,
                     Box::new(Layout::default()),
@@ -577,6 +582,7 @@ impl MockScreen {
     ) -> std::thread::JoinHandle<()> {
         let config = self.config.clone();
         let client_attributes = self.client_attributes.clone();
+        let initial_client_id = self.main_client_id;
         let screen_bus = Bus::new(
             vec![self.screen_receiver.take().unwrap()],
             Some(&self.to_screen.clone()),
@@ -599,6 +605,7 @@ impl MockScreen {
                     screen_bus,
                     None,
                     client_attributes,
+                    initial_client_id,
                     config,
                     debug,
                     Box::new(Layout::default()),
@@ -1009,6 +1016,195 @@ fn new_tab(screen: &mut Screen, pid: u32, tab_index: usize) {
             None,
         )
         .expect("TEST");
+}
+
+#[test]
+fn dotfiles_initial_layout_ignores_unrelated_cli_disconnect() {
+    let size = Size { cols: 80, rows: 24 };
+    let (mut screen, _, server_receiver) =
+        create_new_screen_with_capture(size, true, true, true, false);
+    screen
+        .new_tab(0, (vec![], vec![]), None, Some(1))
+        .expect("create initial tab");
+
+    // A short-lived CLI connection can finish while the plugin/PTY threads are
+    // still preparing the first terminal client's layout.
+    screen
+        .remove_client(2)
+        .expect("remove unrelated CLI client");
+    screen
+        .apply_layout(
+            TiledPaneLayout::default(),
+            vec![],
+            vec![(1, None)],
+            vec![],
+            HashMap::new(),
+            0,
+            true,
+            (1, false),
+            None,
+        )
+        .expect("apply initial layout");
+
+    assert_eq!(screen.active_tab_ids.get(&1), Some(&0));
+    screen
+        .apply_pty_bytes(1, b"initial client is live".to_vec())
+        .expect("write first terminal output");
+    screen.render_to_clients().expect("render initial layout");
+    let rendered = collect_rendered_output_per_client(&server_receiver);
+    assert!(rendered
+        .get(&1)
+        .is_some_and(|output| output.contains("initial client is live")));
+    assert!(!rendered.contains_key(&2));
+}
+
+#[test]
+fn dotfiles_initial_layout_keeps_pending_client_when_another_attaches() {
+    let size = Size { cols: 80, rows: 24 };
+    let (mut screen, _, server_receiver) =
+        create_new_screen_with_capture(size, true, true, true, false);
+    screen
+        .new_tab(0, (vec![], vec![]), None, Some(1))
+        .expect("create initial tab");
+    screen.set_client_size(2, size);
+    screen.add_client(2, false).expect("attach second client");
+    screen
+        .apply_layout(
+            TiledPaneLayout::default(),
+            vec![],
+            vec![(1, None)],
+            vec![],
+            HashMap::new(),
+            0,
+            true,
+            (1, false),
+            None,
+        )
+        .expect("apply initial client's layout");
+
+    assert_eq!(screen.active_tab_ids.get(&1), Some(&0));
+    assert_eq!(screen.active_tab_ids.get(&2), Some(&0));
+    assert_eq!(screen.get_active_pane_id(&1), Some(PaneId::Terminal(1)));
+    assert_eq!(screen.get_active_pane_id(&2), Some(PaneId::Terminal(1)));
+    screen
+        .apply_pty_bytes(1, b"both attachments are live".to_vec())
+        .expect("write shared terminal output");
+    screen.render_to_clients().expect("render both attachments");
+    let rendered = collect_rendered_output_per_client(&server_receiver);
+    assert!(rendered
+        .get(&1)
+        .is_some_and(|output| output.contains("both attachments are live")));
+    assert!(rendered
+        .get(&2)
+        .is_some_and(|output| output.contains("both attachments are live")));
+}
+
+#[test]
+fn dotfiles_initial_layout_moves_existing_mirrored_attachment() {
+    let size = Size { cols: 80, rows: 24 };
+    let (mut screen, _, server_receiver) =
+        create_new_screen_with_capture(size, true, true, true, true);
+    screen
+        .new_tab(0, (vec![], vec![]), None, Some(1))
+        .expect("create pending initial tab");
+    screen
+        .new_tab(1, (vec![], vec![]), None, Some(2))
+        .expect("create second client's tab");
+    screen.set_client_size(2, size);
+    screen.add_client(2, false).expect("attach second client");
+    screen
+        .go_to_tab(2, 2)
+        .expect("move second client to its tab");
+    screen
+        .apply_layout(
+            TiledPaneLayout::default(),
+            vec![],
+            vec![(2, None)],
+            vec![],
+            HashMap::new(),
+            1,
+            true,
+            (2, false),
+            None,
+        )
+        .expect("finish second client's tab first");
+    assert_eq!(screen.active_tab_ids.get(&2), Some(&1));
+    assert_eq!(screen.get_active_pane_id(&2), Some(PaneId::Terminal(2)));
+
+    screen
+        .apply_layout(
+            TiledPaneLayout::default(),
+            vec![],
+            vec![(1, None)],
+            vec![],
+            HashMap::new(),
+            0,
+            true,
+            (1, true),
+            None,
+        )
+        .expect("finish the initial web client's layout");
+
+    assert_eq!(screen.active_tab_ids.get(&1), Some(&0));
+    assert_eq!(screen.active_tab_ids.get(&2), Some(&0));
+    assert_eq!(screen.get_active_pane_id(&1), Some(PaneId::Terminal(1)));
+    assert_eq!(screen.get_active_pane_id(&2), Some(PaneId::Terminal(1)));
+    assert!(screen.tabs.get(&1).unwrap().has_no_connected_clients());
+    assert_eq!(screen.connected_clients.borrow().get(&1), Some(&true));
+    assert_eq!(screen.connected_clients.borrow().get(&2), Some(&false));
+    screen
+        .apply_pty_bytes(1, b"mirrored attachments are live".to_vec())
+        .expect("write destination terminal output");
+    screen.render_to_clients().expect("render destination tab");
+    let rendered = collect_rendered_output_per_client(&server_receiver);
+    assert!(rendered
+        .get(&1)
+        .is_some_and(|output| output.contains("mirrored attachments are live")));
+    assert!(rendered
+        .get(&2)
+        .is_some_and(|output| output.contains("mirrored attachments are live")));
+}
+
+#[test]
+fn dotfiles_initial_layout_does_not_revive_disconnected_client() {
+    let size = Size { cols: 80, rows: 24 };
+    let (mut screen, _, server_receiver) =
+        create_new_screen_with_capture(size, true, true, true, false);
+    screen
+        .new_tab(0, (vec![], vec![]), None, Some(1))
+        .expect("create initial tab");
+    screen.remove_client(1).expect("remove initial client");
+    screen
+        .apply_layout(
+            TiledPaneLayout::default(),
+            vec![],
+            vec![(1, None)],
+            vec![],
+            HashMap::new(),
+            0,
+            true,
+            (1, false),
+            None,
+        )
+        .expect("finish layout after disconnect");
+    screen.render_to_clients().expect("render detached layout");
+
+    assert!(!screen.active_tab_ids.contains_key(&1));
+    assert!(!screen.connected_clients.borrow().contains_key(&1));
+    assert!(screen.tabs.get(&0).unwrap().has_no_connected_clients());
+    assert!(!collect_rendered_output_per_client(&server_receiver).contains_key(&1));
+
+    screen.set_client_size(3, size);
+    screen.add_client(3, false).expect("attach a new client");
+    screen
+        .apply_pty_bytes(1, b"new attachment is live".to_vec())
+        .expect("write to the retained terminal");
+    screen.render_to_clients().expect("render new attachment");
+    let rendered = collect_rendered_output_per_client(&server_receiver);
+    assert!(rendered
+        .get(&3)
+        .is_some_and(|output| output.contains("new attachment is live")));
+    assert!(!rendered.contains_key(&1));
 }
 
 #[test]
@@ -6058,6 +6254,7 @@ fn create_new_screen_with_message_capture(
     let screen = Screen::new(
         bus,
         &client_attributes,
+        1, // initial client
         max_panes,
         mode_info,
         draw_pane_frames,
@@ -9305,6 +9502,7 @@ fn create_new_screen_with_forward_capture(size: Size) -> (Screen, ForwardCapture
     let screen = Screen::new(
         bus,
         &client_attributes,
+        1, // initial client
         max_panes,
         mode_info,
         draw_pane_frames,
@@ -10299,6 +10497,7 @@ fn create_new_screen_with_theme_capture(size: Size) -> (Screen, ThemeCapture) {
     let screen = Screen::new(
         bus,
         &client_attributes,
+        1, // initial client
         None,
         mode_info,
         PaneFrameStyle::None,
@@ -11125,6 +11324,7 @@ fn create_non_mirrored_screen(size: Size) -> Screen {
     let screen = Screen::new(
         bus,
         &client_attributes,
+        1,    // initial client
         None, // max_panes
         mode_info,
         PaneFrameStyle::None,

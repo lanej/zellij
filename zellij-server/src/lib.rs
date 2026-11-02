@@ -5606,6 +5606,7 @@ fn init_session(
                     screen_bus,
                     max_panes,
                     client_attributes_clone,
+                    client_id,
                     config,
                     debug,
                     layout,
