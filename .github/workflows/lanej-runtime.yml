@@ -1,0 +1,59 @@
+name: Lanej runtime
+
+on:
+  push:
+    branches: [lanej-runtime]
+  pull_request:
+    branches: [lanej-runtime]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-regressions:
+    if: github.repository == 'lanej/zellij'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native build tools on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake pkg-config libssl-dev
+      - name: Install native build tools on macOS
+        if: runner.os == 'macOS'
+        run: brew install cmake pkg-config openssl@3
+      - name: Install pinned toolchain
+        run: rustup toolchain install 1.95.0 --profile minimal
+      - name: Cache native build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: lanej-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: lanej-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
+      - name: Verify native reliability fixes
+        run: |
+          host=$(rustup run 1.95.0 rustc -vV | sed -n 's/^host: //p')
+          test -n "$host"
+          rustup run 1.95.0 cargo test --locked --release \
+            -p zellij-server -p zellij-utils --lib --no-default-features \
+            --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
+            --target "$host" dotfiles_
+          rustup run 1.95.0 cargo test --locked --release \
+            -p zellij-integration-tests --test clients --no-default-features \
+            --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
+            --target "$host" dotfiles_cli_query
