@@ -115,6 +115,81 @@ fn go_to_first_tab(client: &TestClient) {
 }
 
 #[test]
+fn dotfiles_cli_query_waits_for_its_reply_after_another_client_closes_a_pane() {
+    use zellij_client::os_input_output::ClientOsApi;
+    use zellij_integration_tests::fake_client_os_api::FakeClientOsApi;
+    use zellij_utils::input::actions::Action;
+    use zellij_utils::ipc::{ClientToServerMsg, ServerToClientMsg};
+
+    let mut zellij = start_zellij();
+    let terminal = claim_first_terminal_and_wait_for_prompt(&zellij);
+    mark_pane(zellij.main_client(), &terminal, "remaining-pane");
+    let _second = split_right_marked(&zellij, zellij.main_client(), "closing-pane");
+
+    let (cli, _) = FakeClientOsApi::new(TERMINAL_SIZE, None);
+    cli.connect_to_server(&zellij.socket_path());
+    let reader = cli.clone();
+    let (messages_tx, messages_rx) = crossbeam::channel::unbounded();
+    let receiver_thread = std::thread::spawn(move || {
+        while let Some((message, _)) = reader.recv_from_server() {
+            if messages_tx.send(message).is_err() {
+                break;
+            }
+        }
+    });
+    let query = ClientToServerMsg::Action {
+        action: Action::ListPanes {
+            show_tab: false,
+            show_command: false,
+            show_state: false,
+            show_geometry: false,
+            show_all: false,
+            output_json: true,
+        },
+        terminal_id: None,
+        client_id: None,
+        is_cli_client: true,
+    };
+
+    // Complete a real round trip so this command socket is registered before
+    // another client closes a pane. Consume only this query's own completion.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        cli.send_to_server(query.clone());
+        assert!(matches!(
+            messages_rx.recv_timeout(zellij_integration_tests::default_timeout()),
+            Ok(ServerToClientMsg::Log { .. })
+        ));
+        assert!(matches!(
+            messages_rx.recv_timeout(zellij_integration_tests::default_timeout()),
+            Ok(ServerToClientMsg::UnblockInputThread)
+        ));
+
+        zellij.send_stdin(&keys::ctrl('p'));
+        zellij.send_stdin(&keys::key('x'));
+        zellij.wait_until("the other client's pane closed", |grid| {
+            grid.contains("remaining-pane") && !grid.contains("closing-pane")
+        });
+
+        // The ordinary CLI exits on UnblockInputThread. Receiving one here
+        // would report a successful empty query before the pane list arrives.
+        cli.send_to_server(query);
+        let response = messages_rx
+            .recv_timeout(zellij_integration_tests::default_timeout())
+            .expect("CLI query did not receive a reply");
+        assert!(
+            matches!(response, ServerToClientMsg::Log { .. }),
+            "unrelated pane closure completed the CLI query: {response:?}"
+        );
+    }));
+    cli.send_to_server(ClientToServerMsg::ClientExited);
+    zellij.quit();
+    receiver_thread.join().unwrap();
+    if let Err(error) = result {
+        std::panic::resume_unwind(error);
+    }
+}
+
+#[test]
 fn mirrored_sessions() {
     let mut zellij = TestRunner::new(TERMINAL_SIZE)
         .with_config("mirror_session true")
