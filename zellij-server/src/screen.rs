@@ -2077,6 +2077,9 @@ pub(crate) struct Screen {
     connected_clients: Rc<RefCell<HashMap<ClientId, bool>>>, // bool -> is_web_client
     client_display_slots: Rc<RefCell<HashMap<ClientId, usize>>>,
     recently_disconnected_clients: VecDeque<ClientId>,
+    // The first client is attached only after its initial layout is ready. Keep its
+    // identity until then so unrelated CLI disconnects cannot cancel that attach.
+    pending_first_client_id: Option<ClientId>,
     /// The indices of this [`Screen`]'s active [`Tab`]s.
     active_tab_ids: BTreeMap<ClientId, usize>,
     client_sizes: HashMap<ClientId, Size>,
@@ -2385,6 +2388,7 @@ impl Screen {
     pub fn new(
         bus: Bus<ScreenInstruction>,
         client_attributes: &ClientAttributes,
+        initial_client_id: ClientId,
         max_panes: Option<usize>,
         mut mode_info: ModeInfo,
         pane_frame_style: PaneFrameStyle,
@@ -2453,6 +2457,7 @@ impl Screen {
             connected_clients: Rc::new(RefCell::new(HashMap::new())),
             client_display_slots: Rc::new(RefCell::new(HashMap::new())),
             recently_disconnected_clients: VecDeque::new(),
+            pending_first_client_id: Some(initial_client_id),
             active_tab_ids: BTreeMap::new(),
             client_sizes: HashMap::new(),
             global_last_active_tab_id: 0,
@@ -6693,20 +6698,12 @@ impl Screen {
             }
             return Ok(());
         }
-        let (client_id, mut is_web_client) = client_id_and_is_web_client;
+        let (client_id, is_web_client) = client_id_and_is_web_client;
+        let pending_first_client =
+            (self.pending_first_client_id == Some(client_id)).then_some((client_id, is_web_client));
         let client_id = if self.get_active_tab(client_id).is_ok() {
-            if let Some(connected_client_is_web_client) =
-                self.connected_clients.borrow().get(&client_id)
-            {
-                is_web_client = *connected_client_is_web_client;
-            }
             client_id
         } else if let Some(first_client_id) = self.get_first_client_id() {
-            if let Some(first_client_is_web_client) =
-                self.connected_clients.borrow().get(&first_client_id)
-            {
-                is_web_client = *first_client_is_web_client;
-            }
             first_client_id
         } else {
             client_id
@@ -6784,10 +6781,10 @@ impl Screen {
             None
         };
 
-        if !self.active_tab_ids.contains_key(&client_id) {
+        if let Some((pending_client_id, pending_client_is_web)) = pending_first_client {
             self.connected_clients
                 .borrow_mut()
-                .insert(client_id, is_web_client);
+                .insert(pending_client_id, pending_client_is_web);
         }
 
         // apply the layout to the new tab
@@ -6816,9 +6813,8 @@ impl Screen {
             })
             .with_context(err_context)?;
 
-        let client_has_since_disconnected = self.recently_disconnected_clients.contains(&client_id);
-        if !self.active_tab_ids.contains_key(&client_id) && !client_has_since_disconnected {
-            self.add_client(client_id, is_web_client)
+        if let Some((pending_client_id, pending_client_is_web)) = pending_first_client {
+            self.add_client(pending_client_id, pending_client_is_web)
                 .with_context(err_context)?;
         }
 
@@ -6891,6 +6887,9 @@ impl Screen {
 
         self.recently_disconnected_clients
             .retain(|disconnected| *disconnected != client_id);
+        if self.pending_first_client_id == Some(client_id) {
+            self.pending_first_client_id = None;
+        }
         self.active_tab_ids.insert(client_id, tab_index);
         self.release_kitty_host_state(client_id);
         self.connected_clients
@@ -6957,6 +6956,9 @@ impl Screen {
                 self.recently_disconnected_clients.pop_front();
             }
             self.recently_disconnected_clients.push_back(client_id);
+        }
+        if self.pending_first_client_id == Some(client_id) {
+            self.pending_first_client_id = None;
         }
 
         self.set_client_dimmed(client_id, false, None);
@@ -10822,6 +10824,7 @@ pub(crate) fn screen_thread_main(
     bus: Bus<ScreenInstruction>,
     max_panes: Option<usize>,
     client_attributes: ClientAttributes,
+    initial_client_id: ClientId,
     config: Config,
     debug: bool,
     default_layout: Box<Layout>,
@@ -10933,6 +10936,7 @@ pub(crate) fn screen_thread_main(
     let mut screen = Screen::new(
         bus,
         &client_attributes,
+        initial_client_id,
         max_panes,
         get_mode_info(
             config_options.default_mode.unwrap_or_default(),
