@@ -10,6 +10,20 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 static IPC_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+#[test]
+fn dotfiles_server_message_reports_flush_failure() {
+    let (_guard, name) = new_ipc();
+    let listener = bind_listener(&name);
+    let client = connect_stream(&name);
+    let stream = listener.incoming().next().unwrap().unwrap();
+    drop(client);
+    let mut sender: IpcSenderWithContext<ServerToClientMsg> = IpcSenderWithContext::new(stream);
+    // This small message fits in BufWriter: the socket error occurs only at flush.
+    assert!(sender
+        .send_server_msg(ServerToClientMsg::Connected)
+        .is_err());
+}
+
 // --- Cross-platform IPC helpers ---
 // On Unix: use filesystem-based sockets (TempDir + PathBuf + GenericFilePath)
 // On Windows: use named pipes (no guard needed, String name + GenericNamespaced)
