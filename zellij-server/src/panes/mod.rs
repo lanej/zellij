@@ -11,6 +11,7 @@ pub mod sixel;
 pub mod terminal_character;
 
 mod active_panes;
+mod agent_title;
 pub mod floating_panes;
 mod plugin_pane;
 mod search;

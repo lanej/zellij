@@ -1292,6 +1292,67 @@ fn chunk_text(chunk: &crate::output::CharacterChunk) -> String {
         .collect()
 }
 
+#[test]
+pub fn dotfiles_codex_frame_titles_keep_identity_status_and_native_updates() {
+    use crate::ui::pane_boundaries_frame::FrameParams;
+    use zellij_utils::data::{BorderStyle, InputMode};
+
+    let mut pane = make_terminal_pane_for_bell();
+    let mut frame = |title: &str| {
+        pane.handle_pty_bytes(format!("\x1b]0;{title}\x07").into_bytes());
+        assert_eq!(pane.current_title(), title);
+        let params = FrameParams {
+            focused_client: Some(1),
+            is_main_client: true,
+            other_focused_clients: vec![],
+            other_focused_client_slots: vec![],
+            style: Style::default(),
+            border_style: BorderStyle::default(),
+            color: None,
+            other_cursors_exist_in_session: false,
+            pane_is_stacked_under: false,
+            pane_is_stacked_over: false,
+            pane_is_stacked: false,
+            should_draw_pane_frames: true,
+            pane_is_floating: false,
+            content_offset: Offset::frame(1),
+            mouse_is_hovering_over_pane: false,
+            pane_is_selectable: true,
+            show_help_text: false,
+            highlight_tooltip: None,
+            omit_title: false,
+            frame_geom_override: None,
+            stack_list_entry: None,
+            blank_title: false,
+            mouse_scroll_resize: false,
+            mouse_hover_tips: false,
+            dimmed: false,
+            guest_choice_indicator: None,
+        };
+        pane.render_frame(1, params, InputMode::Locked)
+            .unwrap()
+            .unwrap()
+            .0
+            .iter()
+            .map(chunk_text)
+            .collect::<String>()
+    };
+
+    let working = frame("codex | 01a19d8f-d3f1-7490-a292-60390... | Working | .files ⠙");
+    assert!(working.contains("󰚩 01a19d8f ⠙ | .files"), "{working}");
+    assert!(!working.contains("Working") && !working.contains("-d3f1"));
+
+    let blocked =
+        frame("[ ! ] Action Required | codex | 01a19d8f-d3f1-7490-a292-60390... | Ready | .files");
+    assert!(blocked.contains("󰚩 01a19d8f  | .files"), "{blocked}");
+
+    let ready = frame("codex | 01a19d8f-d3f1-7490-a292-60390... | Ready | .files");
+    assert!(ready.contains("󰚩 01a19d8f  | .files"), "{ready}");
+
+    let shell = frame("shell | .files");
+    assert!(shell.contains("shell | .files"), "{shell}");
+}
+
 fn chunk_width(chunk: &crate::output::CharacterChunk) -> usize {
     chunk
         .terminal_characters

@@ -594,7 +594,13 @@ impl Pane for TerminalPane {
             }
             format!("SEARCHING: {}{}", self.search_term, modifier_text)
         } else {
-            self.current_title()
+            let title = self.current_title();
+            if self.pane_name.is_empty() {
+                // WHY: Format only the frame; retain the application's title and live updates.
+                super::agent_title::compact_codex_title(&title).unwrap_or(title)
+            } else {
+                title
+            }
         };
         let frame_params_blank_title = frame_params.blank_title;
         let pane_title = if frame_params.blank_title {
