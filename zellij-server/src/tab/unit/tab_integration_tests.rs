@@ -19999,7 +19999,7 @@ fn leaving_a_tab_forgets_the_last_click_so_returning_cannot_double_click() {
 
 #[test]
 fn dotfiles_focused_popup_receives_complete_paste_for_its_client() {
-    use zellij_utils::consts::{BRACKETED_PASTE_BEGIN, BRACKETED_PASTE_END};
+    use crate::panes::terminal_pane::{BRACKETED_PASTE_BEGIN, BRACKETED_PASTE_END};
     use zellij_utils::data::Event;
     let size = Size {
         cols: 121,
