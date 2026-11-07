@@ -191,7 +191,7 @@ impl Screen {
             None => false,
         }
     }
-    fn client_has_focused_popup(&self, client_id: ClientId) -> bool {
+    pub(super) fn client_has_focused_popup(&self, client_id: ClientId) -> bool {
         self.tabs
             .values()
             .any(|tab| tab.has_focused_popup_for_client(client_id))
