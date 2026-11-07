@@ -14,6 +14,12 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 use zellij_tile::prelude::*;
 
+// Native tests have no plugin host to answer the synchronous timestamp query.
+#[cfg(test)]
+fn current_session_last_saved_time() -> Option<u64> {
+    None
+}
+
 use app_panel::{
     close_self, hide_self, switch_session, switch_session_and_close_current,
     switch_session_with_focus, switch_session_with_options,
@@ -920,12 +926,17 @@ impl State {
         if self.exited_session_count() > 0 {
             secondary.push(hint("<Shift Del>", "delete all exited"));
         }
-        secondary.push(hint("<F1>", "all keys"));
+        secondary.push(hint("<Alt ?>", "all keys"));
         (primary, secondary)
     }
     fn sessions_help_block(&self, width: usize) -> Vec<help::BlockLine> {
         let (primary, secondary) = self.sessions_help_groups();
-        help::block_lines(&primary, &secondary, &help::hint("<F1>", "all keys"), width)
+        help::block_lines(
+            &primary,
+            &secondary,
+            &help::hint("<Alt ?>", "all keys"),
+            width,
+        )
     }
     fn help_width(&self, cols: usize) -> usize {
         cols.saturating_sub(4).max(10)
@@ -1224,6 +1235,9 @@ impl State {
         }
         if self.panel.size == Some(PanelSize::Manager)
             && (key.bare_key == BareKey::F(1)
+                || (key.bare_key == BareKey::Char('?')
+                    && (key.has_only_modifiers(&[KeyModifier::Alt])
+                        || key.has_only_modifiers(&[KeyModifier::Alt, KeyModifier::Shift])))
                 || (self.inbox_is_shown()
                     && key.bare_key == BareKey::Char('?')
                     && (key.has_no_modifiers() || key.has_only_modifiers(&[KeyModifier::Shift]))))
@@ -2987,7 +3001,7 @@ impl State {
                 hints.push(hint("<TAB>", "switch to the inbox"));
             }
             hints.push(hint("<Ctrl c>", "clear the search"));
-            hints.push(hint("<F1>", "this list"));
+            hints.push(hint("<Alt ?>", "this list"));
         }
         hints
     }
@@ -4263,10 +4277,11 @@ mod live_view_state_tests {
     #[test]
     fn the_all_keys_list_clears_the_live_view() {
         let mut state = browser();
-        state.show_all_keys = true;
+        assert!(state.handle_key(KeyWithModifier::new(BareKey::Char('?'))));
+        assert!(state.show_all_keys);
         state.render_plugin(16, 88);
         assert_eq!(state.inbox.live_view_sent, None);
-        state.show_all_keys = false;
+        assert!(state.handle_key(KeyWithModifier::new(BareKey::Esc)));
         state.render_plugin(16, 88);
         assert!(state.inbox.live_view_sent.is_some());
     }
@@ -4755,12 +4770,28 @@ mod sessions_live_view_tests {
     fn the_sessions_view_is_cleared_whenever_its_preview_is_not_drawn() {
         let mut state = sessions_browser();
         assert_eq!(shown(&state), api(2));
-        state.show_all_keys = true;
-        state.render_plugin(ROWS, COLS);
-        assert_eq!(state.inbox.live_view_sent, None, "the all keys list");
-        state.show_all_keys = false;
-        state.render_plugin(ROWS, COLS);
-        assert_eq!(shown(&state), api(2));
+        for key in [
+            KeyWithModifier::new(BareKey::Char('?')).with_alt_modifier(),
+            // Kitty CSI 63;4u reports the Shift used to type '?' as well as Alt.
+            KeyWithModifier::from_bytes_with_u(b"63", b"4").unwrap(),
+        ] {
+            assert!(state.handle_key(key));
+            assert!(state.show_all_keys);
+            state.render_plugin(ROWS, COLS);
+            assert_eq!(state.inbox.live_view_sent, None, "the all keys list");
+            assert!(state.handle_key(KeyWithModifier::new(BareKey::Down)));
+            assert_eq!(state.all_keys_scroll, 1);
+            assert!(state.handle_key(KeyWithModifier::new(BareKey::Esc)));
+            assert!(!state.show_all_keys);
+            assert_eq!(state.all_keys_scroll, 0);
+            state.render_plugin(ROWS, COLS);
+            assert_eq!(shown(&state), api(2));
+        }
+        assert!(state.handle_key(KeyWithModifier::new(BareKey::Char('?'))));
+        assert!(!state.show_all_keys);
+        assert_eq!(state.single_screen_state.search_term, "?");
+        assert!(state.handle_key(KeyWithModifier::new(BareKey::Backspace)));
+        select(&mut state, 0);
         state.single_screen_state.mode = SingleScreenMode::SelectingLayout;
         state.render_plugin(ROWS, COLS);
         assert_eq!(state.inbox.live_view_sent, None, "the layout picker");
