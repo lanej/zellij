@@ -442,9 +442,23 @@ impl Screen {
         raw_bytes: Vec<u8>,
         is_kitty_keyboard_protocol: bool,
     ) -> bool {
+        self.send_input_to_popup(
+            client_id,
+            &Some(key_with_modifier),
+            raw_bytes,
+            is_kitty_keyboard_protocol,
+        )
+    }
+    pub fn send_input_to_popup(
+        &mut self,
+        client_id: ClientId,
+        key_with_modifier: &Option<zellij_utils::data::KeyWithModifier>,
+        raw_bytes: Vec<u8>,
+        is_kitty_keyboard_protocol: bool,
+    ) -> bool {
         let had_focused_popup = self.client_has_focused_popup(client_id);
         let sent = match self.get_active_tab_mut(client_id) {
-            Ok(tab) => tab.send_key_to_popup(
+            Ok(tab) => tab.send_input_to_popup(
                 client_id,
                 key_with_modifier,
                 raw_bytes,

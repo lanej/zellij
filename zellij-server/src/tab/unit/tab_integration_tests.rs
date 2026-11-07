@@ -19996,3 +19996,41 @@ fn leaving_a_tab_forgets_the_last_click_so_returning_cannot_double_click() {
     tab.add_multiple_clients(drained).unwrap();
     assert!(!tab.mouse_click_tracker.contains_key(&client_id));
 }
+
+#[test]
+fn dotfiles_focused_popup_receives_complete_paste_for_its_client() {
+    use zellij_utils::consts::{BRACKETED_PASTE_BEGIN, BRACKETED_PASTE_END};
+    use zellij_utils::data::Event;
+    let size = Size {
+        cols: 121,
+        rows: 20,
+    };
+    let (mut tab, receiver) = create_new_tab_with_plugin_receiver(size, ModeInfo::default());
+    open_test_prompt_popup(&mut tab, 1, 42, 8);
+    open_test_info_popup(
+        &mut tab,
+        1,
+        50,
+        zellij_utils::data::PopupCorner::TopRight,
+        4,
+    );
+    let text = "界e\u{301}👩\u{200d}💻\nquoted text";
+    assert!(!tab.send_input_to_popup(2, &None, BRACKETED_PASTE_BEGIN.to_vec(), false));
+    for bytes in std::iter::once(BRACKETED_PASTE_BEGIN)
+        .chain(text.as_bytes().chunks(3))
+        .chain(std::iter::once(BRACKETED_PASTE_END))
+    {
+        assert!(tab.send_input_to_popup(1, &None, bytes.to_vec(), false));
+    }
+    let mut pastes = vec![];
+    while let Ok((instruction, _)) = receiver.try_recv() {
+        if let PluginInstruction::Update(updates) = instruction {
+            for (plugin, client, event) in updates {
+                if let Event::PastedText(text) = event {
+                    pastes.push((plugin, client, text));
+                }
+            }
+        }
+    }
+    assert_eq!(pastes, vec![(Some(42), Some(1), text.to_owned())]);
+}
