@@ -619,13 +619,35 @@ impl Tab {
         raw_bytes: Vec<u8>,
         is_kitty_keyboard_protocol: bool,
     ) -> bool {
+        self.send_input_to_popup(
+            client_id,
+            &Some(key_with_modifier),
+            raw_bytes,
+            is_kitty_keyboard_protocol,
+        )
+    }
+    pub fn send_input_to_popup(
+        &mut self,
+        client_id: ClientId,
+        key_with_modifier: &Option<zellij_utils::data::KeyWithModifier>,
+        raw_bytes: Vec<u8>,
+        is_kitty_keyboard_protocol: bool,
+    ) -> bool {
+        // Permission answers must be keys, never bytes from a pasted string.
+        if key_with_modifier.is_none()
+            && self
+                .top_focused_popup(client_id)
+                .is_some_and(|p| p.awaiting_permission)
+        {
+            return true;
+        }
         let Some(plugin_id) = self.popup_plugin_id(client_id) else {
             return false;
         };
         if self.live_views.borrow().is_captured(plugin_id, client_id) {
             self.live_views.borrow_mut().send_key(
                 client_id,
-                &Some(key_with_modifier),
+                key_with_modifier,
                 &raw_bytes,
                 is_kitty_keyboard_protocol,
             );
@@ -633,7 +655,7 @@ impl Tab {
         }
         let adjusted_input = match self.popup_pane_mut(plugin_id) {
             Some(pane) => pane.adjust_input_to_terminal(
-                &Some(key_with_modifier),
+                key_with_modifier,
                 raw_bytes,
                 is_kitty_keyboard_protocol,
                 Some(client_id),
