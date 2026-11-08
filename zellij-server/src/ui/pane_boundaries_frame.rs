@@ -293,7 +293,8 @@ impl PaneFrame {
         max_length: usize,
     ) -> Option<(Vec<TerminalCharacter>, usize)> {
         // string and length because of color
-        let has_scroll = self.scroll_position.0 > 0 || self.scroll_position.1 > 0;
+        // History alone is not a reason to label every live pane as scrolling.
+        let has_scroll = self.scroll_position.0 > 0;
         if has_scroll && self.is_selectable {
             // TODO: don't show SCROLL at all for plugins
             let pin_indication = if self.is_floating && self.is_selectable {
@@ -992,7 +993,7 @@ impl PaneFrame {
         &self,
         max_length: usize,
     ) -> Option<(Vec<TerminalCharacter>, usize)> {
-        let has_scroll = self.scroll_position.0 > 0 || self.scroll_position.1 > 0;
+        let has_scroll = self.scroll_position.0 > 0;
         if !(has_scroll && self.is_selectable) {
             return None;
         }
@@ -1596,6 +1597,40 @@ mod tests {
         row.iter()
             .flat_map(|c| c.terminal_characters.iter().cloned())
             .collect()
+    }
+
+    #[test]
+    fn dotfiles_scroll_indicator_only_appears_away_from_live_output() {
+        let mut frame = title_frame("shell", 80, true);
+        let live_title = characters_to_string(&first_row(&frame));
+
+        frame.scroll_position = (0, 100);
+        assert_eq!(characters_to_string(&first_row(&frame)), live_title);
+        frame.scroll_position = (12, 100);
+        assert!(characters_to_string(&first_row(&frame)).contains("SCROLL:  12/100"));
+        frame.scroll_position = (0, 100);
+        assert_eq!(characters_to_string(&first_row(&frame)), live_title);
+
+        frame.is_floating = true;
+        frame.is_pinned = true;
+        let floating_title = characters_to_string(&first_row(&frame));
+        assert!(floating_title.contains("PIN [+]"));
+        assert!(!floating_title.contains("SCROLL"));
+        frame.scroll_position = (12, 100);
+        let scrolling_title = characters_to_string(&first_row(&frame));
+        assert!(scrolling_title.contains("SCROLL:  12/100"));
+        assert!(scrolling_title.contains("PIN [+]"));
+        frame.scroll_position = (0, 100);
+        assert_eq!(characters_to_string(&first_row(&frame)), floating_title);
+
+        frame.is_floating = false;
+        frame.should_draw_pane_frames = false;
+        let one_line_title = characters_to_string(&first_row(&frame));
+        assert!(!one_line_title.contains("SCROLL"));
+        frame.scroll_position = (12, 100);
+        assert!(characters_to_string(&first_row(&frame)).contains("SCROLL: 12/100"));
+        frame.scroll_position = (0, 100);
+        assert_eq!(characters_to_string(&first_row(&frame)), one_line_title);
     }
 
     fn assert_cells_are_whole_clusters(cells: &[TerminalCharacter], title: &str) {
