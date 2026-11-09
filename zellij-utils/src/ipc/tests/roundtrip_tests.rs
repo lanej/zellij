@@ -560,6 +560,7 @@ fn test_client_messages() {
                 client_async_worker_tasks: Some(16),
                 mouse_hover_effects: Some(false),
                 mouse_hover_tips: Some(false),
+                hide_scroll_indicator_when_idle: Some(false),
                 visual_bell: Some(true),
                 focus_follows_mouse: Some(false),
                 mouse_click_through: Some(false),

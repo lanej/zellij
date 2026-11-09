@@ -479,6 +479,12 @@ pub struct Options {
     #[serde(default)]
     pub mouse_hover_tips: Option<bool>,
 
+    /// Hide the SCROLL indicator unless the pane is scrolled back
+    /// default is false
+    #[clap(long, value_parser)]
+    #[serde(default)]
+    pub hide_scroll_indicator_when_idle: Option<bool>,
+
     /// Whether to show visual bell indicators (pane/tab frame flash and [!] suffix)
     /// default is true
     #[clap(long, value_parser)]
@@ -765,6 +771,9 @@ impl Options {
         let scroll_mode_sync = other.scroll_mode_sync.or(self.scroll_mode_sync);
         let mouse_hover_effects = other.mouse_hover_effects.or(self.mouse_hover_effects);
         let mouse_hover_tips = other.mouse_hover_tips.or(self.mouse_hover_tips);
+        let hide_scroll_indicator_when_idle = other
+            .hide_scroll_indicator_when_idle
+            .or(self.hide_scroll_indicator_when_idle);
         let visual_bell = other.visual_bell.or(self.visual_bell);
         let focus_follows_mouse = other.focus_follows_mouse.or(self.focus_follows_mouse);
         let mouse_click_through = other.mouse_click_through.or(self.mouse_click_through);
@@ -870,6 +879,7 @@ impl Options {
             scroll_mode_sync,
             mouse_hover_effects,
             mouse_hover_tips,
+            hide_scroll_indicator_when_idle,
             visual_bell,
             focus_follows_mouse,
             mouse_click_through,
@@ -990,6 +1000,9 @@ impl Options {
         let scroll_mode_sync = other.scroll_mode_sync.or(self.scroll_mode_sync);
         let mouse_hover_effects = other.mouse_hover_effects.or(self.mouse_hover_effects);
         let mouse_hover_tips = other.mouse_hover_tips.or(self.mouse_hover_tips);
+        let hide_scroll_indicator_when_idle = other
+            .hide_scroll_indicator_when_idle
+            .or(self.hide_scroll_indicator_when_idle);
         let visual_bell = other.visual_bell.or(self.visual_bell);
         let focus_follows_mouse = merge_bool(other.focus_follows_mouse, self.focus_follows_mouse);
         let mouse_click_through = merge_bool(other.mouse_click_through, self.mouse_click_through);
@@ -1098,6 +1111,7 @@ impl Options {
             scroll_mode_sync,
             mouse_hover_effects,
             mouse_hover_tips,
+            hide_scroll_indicator_when_idle,
             visual_bell,
             focus_follows_mouse,
             mouse_click_through,
@@ -1283,5 +1297,67 @@ mod tests {
             Some(HostNotificationProtocol::Osc99),
             "the option is carried over verbatim, not toggled like the boolean options are"
         );
+    }
+
+    #[test]
+    fn hide_scroll_indicator_when_idle_merges_explicit_values_without_toggling() {
+        for base in [None, Some(false), Some(true)] {
+            for override_value in [None, Some(false), Some(true)] {
+                let config = Options {
+                    hide_scroll_indicator_when_idle: base,
+                    ..Default::default()
+                };
+                let other = Options {
+                    hide_scroll_indicator_when_idle: override_value,
+                    ..Default::default()
+                };
+                let expected = override_value.or(base);
+                assert_eq!(
+                    config.merge(other.clone()).hide_scroll_indicator_when_idle,
+                    expected
+                );
+                assert_eq!(
+                    config.merge_from_cli(other).hide_scroll_indicator_when_idle,
+                    expected
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hide_scroll_indicator_when_idle_round_trips_through_ipc() {
+        use crate::client_server_contract::client_server_contract::Options as ProtoOptions;
+        for value in [None, Some(false), Some(true)] {
+            let options = Options {
+                hide_scroll_indicator_when_idle: value,
+                ..Default::default()
+            };
+            let encoded: ProtoOptions = options.clone().into();
+            let decoded: Options = encoded.try_into().unwrap();
+            assert_eq!(decoded, options);
+        }
+    }
+
+    #[test]
+    fn hide_scroll_indicator_when_idle_parses_cli_values() {
+        use clap::Parser;
+        #[derive(Parser)]
+        struct Cli {
+            #[clap(flatten)]
+            options: Options,
+        }
+        assert_eq!(
+            Cli::try_parse_from(["zellij"])
+                .unwrap()
+                .options
+                .hide_scroll_indicator_when_idle,
+            None
+        );
+        for (argument, expected) in [("true", true), ("false", false)] {
+            let cli =
+                Cli::try_parse_from(["zellij", "--hide-scroll-indicator-when-idle", argument])
+                    .unwrap();
+            assert_eq!(cli.options.hide_scroll_indicator_when_idle, Some(expected));
+        }
     }
 }

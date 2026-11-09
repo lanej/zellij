@@ -888,6 +888,7 @@ pub enum ScreenInstruction {
         scroll_mode_sync: bool,
         mouse_hover_effects: bool,
         mouse_hover_tips: bool,
+        hide_scroll_indicator_when_idle: bool,
         visual_bell: bool,
         focus_follows_mouse: bool,
         mouse_click_through: bool,
@@ -2112,6 +2113,7 @@ pub(crate) struct Screen {
     scroll_mode_sync: bool,
     mouse_hover_effects: bool,
     mouse_hover_tips: bool,
+    hide_scroll_indicator_when_idle: bool,
     visual_bell: bool,
     focus_follows_mouse: bool,
     mouse_click_through: bool,
@@ -2391,6 +2393,7 @@ impl Screen {
         scroll_mode_sync: bool,
         mouse_hover_effects: bool,
         mouse_hover_tips: bool,
+        hide_scroll_indicator_when_idle: bool,
         visual_bell: bool,
         focus_follows_mouse: bool,
         mouse_click_through: bool,
@@ -2484,6 +2487,7 @@ impl Screen {
             scroll_mode_sync,
             mouse_hover_effects,
             mouse_hover_tips,
+            hide_scroll_indicator_when_idle,
             visual_bell,
             focus_follows_mouse,
             mouse_click_through,
@@ -6513,6 +6517,7 @@ impl Screen {
             self.mouse_scroll_resize,
             self.mouse_hover_effects,
             self.mouse_hover_tips,
+            self.hide_scroll_indicator_when_idle,
             self.focus_follows_mouse,
             self.mouse_click_through,
             self.web_server_ip,
@@ -9379,6 +9384,7 @@ impl Screen {
         scroll_mode_sync: bool,
         mouse_hover_effects: bool,
         mouse_hover_tips: bool,
+        hide_scroll_indicator_when_idle: bool,
         visual_bell: bool,
         focus_follows_mouse: bool,
         mouse_click_through: bool,
@@ -9419,6 +9425,7 @@ impl Screen {
         self.scroll_mode_sync = scroll_mode_sync;
         self.mouse_hover_effects = mouse_hover_effects;
         self.mouse_hover_tips = mouse_hover_tips;
+        self.hide_scroll_indicator_when_idle = hide_scroll_indicator_when_idle;
         self.visual_bell = visual_bell;
         self.focus_follows_mouse = focus_follows_mouse;
         self.mouse_click_through = mouse_click_through;
@@ -9454,6 +9461,7 @@ impl Screen {
             tab.update_mouse_scroll_resize(mouse_scroll_resize);
             tab.update_mouse_hover_effects(mouse_hover_effects);
             tab.update_mouse_hover_tips(mouse_hover_tips);
+            tab.update_hide_scroll_indicator_when_idle(hide_scroll_indicator_when_idle);
             tab.update_focus_follows_mouse(focus_follows_mouse);
             tab.update_mouse_click_through(mouse_click_through);
             tab.update_selection_options(osc133_command_selection, self.word_separators.clone());
@@ -10795,6 +10803,9 @@ pub(crate) fn screen_thread_main(
     let scroll_mode_sync = config_options.scroll_mode_sync.unwrap_or(true);
     let mouse_hover_effects = config_options.mouse_hover_effects.unwrap_or(true);
     let mouse_hover_tips = config_options.mouse_hover_tips.unwrap_or(true);
+    let hide_scroll_indicator_when_idle = config_options
+        .hide_scroll_indicator_when_idle
+        .unwrap_or(false);
     let visual_bell = config_options.visual_bell.unwrap_or(true);
     let focus_follows_mouse = config_options.focus_follows_mouse.unwrap_or(false);
     let mouse_click_through = config_options.mouse_click_through.unwrap_or(false);
@@ -10848,6 +10859,7 @@ pub(crate) fn screen_thread_main(
         scroll_mode_sync,
         mouse_hover_effects,
         mouse_hover_tips,
+        hide_scroll_indicator_when_idle,
         visual_bell,
         focus_follows_mouse,
         mouse_click_through,
@@ -14638,6 +14650,7 @@ pub(crate) fn screen_thread_main(
                 scroll_mode_sync,
                 mouse_hover_effects,
                 mouse_hover_tips,
+                hide_scroll_indicator_when_idle,
                 visual_bell,
                 focus_follows_mouse,
                 mouse_click_through,
@@ -14675,6 +14688,7 @@ pub(crate) fn screen_thread_main(
                         scroll_mode_sync,
                         mouse_hover_effects,
                         mouse_hover_tips,
+                        hide_scroll_indicator_when_idle,
                         visual_bell,
                         focus_follows_mouse,
                         mouse_click_through,

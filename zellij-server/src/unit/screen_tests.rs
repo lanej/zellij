@@ -395,6 +395,7 @@ fn create_new_screen_with_capture(
         true,
         mouse_hover_effects,
         true,
+        false, // hide_scroll_indicator_when_idle
         visual_bell,
         false, // focus_follows_mouse
         false, // mouse_click_through
@@ -6215,6 +6216,7 @@ fn create_new_screen_with_message_capture(
         true,
         true,
         true,
+        false, // hide_scroll_indicator_when_idle
         visual_bell,
         false, // focus_follows_mouse
         false, // mouse_click_through
@@ -9462,6 +9464,7 @@ fn create_new_screen_with_forward_capture(size: Size) -> (Screen, ForwardCapture
         true,
         true,
         true,
+        false, // hide_scroll_indicator_when_idle
         visual_bell,
         false, // focus_follows_mouse
         false, // mouse_click_through
@@ -10456,6 +10459,7 @@ fn create_new_screen_with_theme_capture(size: Size) -> (Screen, ThemeCapture) {
         true,
         true,
         true,
+        false, // hide_scroll_indicator_when_idle
         true,
         false,
         false,
@@ -11282,6 +11286,7 @@ fn create_non_mirrored_screen(size: Size) -> Screen {
         true,
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         true,  // visual_bell
         false, // focus_follows_mouse
         false, // mouse_click_through

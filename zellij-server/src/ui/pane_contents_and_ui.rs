@@ -42,6 +42,7 @@ pub struct PaneContentsAndUi<'a> {
     blank_title: bool,
     mouse_scroll_resize: bool,
     mouse_hover_tips: bool,
+    hide_scroll_indicator_when_idle: bool,
     dimmed_for_clients: HashSet<ClientId>,
     live_views: Option<crate::pane_mirror::SharedLiveViews>,
 }
@@ -63,6 +64,7 @@ impl<'a> PaneContentsAndUi<'a> {
         omit_title: bool,
         mouse_scroll_resize: bool,
         mouse_hover_tips: bool,
+        hide_scroll_indicator_when_idle: bool,
         dimmed_for_clients: HashSet<ClientId>,
         client_display_slots: &HashMap<ClientId, usize>,
     ) -> Self {
@@ -105,6 +107,7 @@ impl<'a> PaneContentsAndUi<'a> {
             blank_title: false,
             mouse_scroll_resize,
             mouse_hover_tips,
+            hide_scroll_indicator_when_idle,
             dimmed_for_clients,
             live_views: None,
         }
@@ -436,6 +439,7 @@ impl<'a> PaneContentsAndUi<'a> {
                 blank_title: self.blank_title,
                 mouse_scroll_resize: self.mouse_scroll_resize,
                 mouse_hover_tips: self.mouse_hover_tips,
+                hide_scroll_indicator_when_idle: self.hide_scroll_indicator_when_idle,
                 dimmed: frame_is_dimmed,
                 guest_choice_indicator,
             }
@@ -470,6 +474,7 @@ impl<'a> PaneContentsAndUi<'a> {
                 blank_title: self.blank_title,
                 mouse_scroll_resize: self.mouse_scroll_resize,
                 mouse_hover_tips: self.mouse_hover_tips,
+                hide_scroll_indicator_when_idle: self.hide_scroll_indicator_when_idle,
                 dimmed: frame_is_dimmed,
                 guest_choice_indicator,
             }
