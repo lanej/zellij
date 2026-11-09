@@ -641,6 +641,13 @@ fn describe_entry(key: SettingKey) -> SettingInfo {
             "true",
             Everyone,
         ),
+        SettingKey::HideScrollIndicatorWhenIdle => info(
+            "Hide idle scroll indicator",
+            "Show SCROLL only when a pane is scrolled back, including the active pane",
+            Toggle,
+            "false",
+            Everyone,
+        ),
         SettingKey::MouseHoverTips => info(
             "Hover tips",
             "Show tips on hover, such as resize and grouping hints and the help of a setting here",
@@ -1882,9 +1889,11 @@ pub fn placement(key: SettingKey) -> (Category, &'static str) {
         NestedSessionHandling => (C::General, "Nested sessions"),
         Theme | ThemeDark | ThemeLight | ExplicitThemeHue => (C::Appearance, "Theme"),
         SimplifiedUi | VisualBell => (C::Appearance, "Interface"),
-        PaneFrames | PaneFrameStyle | FrameRoundedCorners | FrameHideSessionName => {
-            (C::Appearance, "Pane frames")
-        },
+        PaneFrames
+        | PaneFrameStyle
+        | FrameRoundedCorners
+        | FrameHideSessionName
+        | HideScrollIndicatorWhenIdle => (C::Appearance, "Pane frames"),
         BarsHiddenOnStart | HiddenBarsNotification | ModeHintsWhenBarsHidden | SessionIndicator => {
             (C::Appearance, "Bars")
         },
@@ -2441,6 +2450,15 @@ mod tests {
             let has_rows = !settings_in(category).is_empty();
             assert_eq!(has_rows, category.has_rows(), "{}", category.title());
         }
+    }
+
+    #[test]
+    fn the_idle_scroll_indicator_toggle_is_listed_with_pane_frames() {
+        let key = SettingKey::HideScrollIndicatorWhenIdle;
+        assert!(settings_in(Category::Appearance).contains(&key));
+        assert_eq!(section(key), "Pane frames");
+        assert_eq!(describe(key).kind, SettingKind::Toggle);
+        assert_eq!(describe(key).default, "false");
     }
 
     #[test]

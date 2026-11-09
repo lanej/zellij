@@ -1240,6 +1240,7 @@ impl TiledPanes {
         help_text_visible: &HashMap<ClientId, bool>,
         mouse_scroll_resize: bool,
         mouse_hover_tips: bool,
+        hide_scroll_indicator_when_idle: bool,
     ) -> Result<()> {
         let err_context = || "failed to render tiled panes";
 
@@ -1399,6 +1400,7 @@ impl TiledPanes {
                     omit_pane_title && reserved_rows_for_pane == 0,
                     mouse_scroll_resize,
                     mouse_hover_tips,
+                    hide_scroll_indicator_when_idle,
                     self.dimmed_clients.clone(),
                     &self.client_display_slots.borrow(),
                 );

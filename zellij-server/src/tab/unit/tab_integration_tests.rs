@@ -283,6 +283,7 @@ fn create_new_tab(size: Size, default_mode: ModeInfo) -> Tab {
         mouse_scroll_resize,
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         false, // focus_follows_mouse
         false, // mouse_click_through
         web_server_ip,
@@ -383,6 +384,7 @@ fn create_new_tab_with_stacked_pane_list(
         mouse_scroll_resize,
         true,
         true,
+        false, // hide_scroll_indicator_when_idle
         false,
         false,
         web_server_ip,
@@ -479,6 +481,7 @@ fn create_new_tab_without_pane_frames(size: Size, default_mode: ModeInfo) -> Tab
         mouse_scroll_resize,
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         false, // focus_follows_mouse
         false, // mouse_click_through
         web_server_ip,
@@ -592,6 +595,7 @@ fn create_new_tab_with_swap_layouts(
         mouse_scroll_resize,
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         false, // focus_follows_mouse
         false, // mouse_click_through
         web_server_ip,
@@ -702,6 +706,7 @@ fn create_new_tab_with_os_api(
         mouse_scroll_resize,
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         false, // focus_follows_mouse
         false, // mouse_click_through
         web_server_ip,
@@ -798,6 +803,7 @@ fn create_new_tab_with_layout(size: Size, default_mode: ModeInfo, layout: &str) 
         mouse_scroll_resize,
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         false, // focus_follows_mouse
         false, // mouse_click_through
         web_server_ip,
@@ -908,6 +914,7 @@ fn create_new_tab_with_mock_pty_writer(
         mouse_scroll_resize,
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         false, // focus_follows_mouse
         false, // mouse_click_through
         web_server_ip,
@@ -1009,6 +1016,7 @@ fn create_new_tab_with_sixel_support(
         mouse_scroll_resize,
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         false, // focus_follows_mouse
         false, // mouse_click_through
         web_server_ip,
@@ -15662,6 +15670,7 @@ fn create_new_tab_with_plugin_receiver(
         mouse_scroll_resize,
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         false, // focus_follows_mouse
         false, // mouse_click_through
         web_server_ip,
@@ -17454,6 +17463,7 @@ fn create_new_tab_with_server_receiver(
         true, // mouse_scroll_resize
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         false, // focus_follows_mouse
         false, // mouse_click_through
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -20561,4 +20571,46 @@ fn leaving_a_tab_forgets_the_last_click_so_returning_cannot_double_click() {
     assert!(!tab.mouse_click_tracker.contains_key(&client_id));
     tab.add_multiple_clients(drained).unwrap();
     assert!(!tab.mouse_click_tracker.contains_key(&client_id));
+}
+
+#[test]
+fn hide_idle_scroll_indicator_updates_existing_active_and_inactive_panes() {
+    let size = Size {
+        cols: 160,
+        rows: 20,
+    };
+    let client_id = 1;
+    let mut tab = create_new_tab(size, ModeInfo::default());
+    tab.vertical_split(PaneId::Terminal(2), None, client_id, None, None)
+        .unwrap();
+    let history = (0..100)
+        .map(|i| format!("line {i}\r\n"))
+        .collect::<String>();
+    for pane_id in [1, 2] {
+        tab.handle_pty_bytes(pane_id, history.as_bytes().to_vec())
+            .unwrap();
+    }
+    let render = |tab: &mut Tab| {
+        tab.set_force_render();
+        let mut output = Output::default();
+        tab.render(&mut output, None).unwrap();
+        take_snapshot(
+            output.serialize().unwrap().get(&client_id).unwrap().ansi(),
+            size.rows,
+            size.cols,
+            Palette::default(),
+        )
+    };
+    assert_eq!(render(&mut tab).matches("SCROLL").count(), 2);
+    tab.update_hide_scroll_indicator_when_idle(true);
+    assert!(!render(&mut tab).contains("SCROLL"));
+    // Pane 2 is active. Both focused and unfocused panes retain scroll feedback.
+    for pane_id in [1, 2] {
+        tab.scroll_terminal_up(pane_id).unwrap();
+        assert_eq!(render(&mut tab).matches("SCROLL").count(), 1);
+        tab.scroll_terminal_to_bottom(pane_id);
+        assert!(!render(&mut tab).contains("SCROLL"));
+    }
+    tab.update_hide_scroll_indicator_when_idle(false);
+    assert_eq!(render(&mut tab).matches("SCROLL").count(), 2);
 }
