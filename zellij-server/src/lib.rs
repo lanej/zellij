@@ -1335,6 +1335,10 @@ impl SessionMetaData {
                     scroll_mode_sync: new_config.options.scroll_mode_sync.unwrap_or(true),
                     mouse_hover_effects: new_config.options.mouse_hover_effects.unwrap_or(true),
                     mouse_hover_tips: new_config.options.mouse_hover_tips.unwrap_or(true),
+                    hide_scroll_indicator_when_idle: new_config
+                        .options
+                        .hide_scroll_indicator_when_idle
+                        .unwrap_or(false),
                     visual_bell: new_config.options.visual_bell.unwrap_or(true),
                     focus_follows_mouse: new_config.options.focus_follows_mouse.unwrap_or(false),
                     mouse_click_through: new_config.options.mouse_click_through.unwrap_or(false),

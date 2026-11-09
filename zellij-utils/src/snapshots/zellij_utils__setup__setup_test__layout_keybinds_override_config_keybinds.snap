@@ -144,6 +144,7 @@ Config {
         scroll_mode_sync: None,
         mouse_hover_effects: None,
         mouse_hover_tips: None,
+        hide_scroll_indicator_when_idle: None,
         visual_bell: None,
         focus_follows_mouse: None,
         mouse_click_through: None,

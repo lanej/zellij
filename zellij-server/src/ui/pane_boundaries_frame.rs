@@ -134,6 +134,7 @@ pub struct FrameParams {
     pub blank_title: bool,
     pub mouse_scroll_resize: bool,
     pub mouse_hover_tips: bool,
+    pub hide_scroll_indicator_when_idle: bool,
     pub dimmed: bool,
     pub guest_choice_indicator: Option<GuestChoiceIndicator>,
 }
@@ -169,6 +170,7 @@ pub struct PaneFrame {
     color_override: Option<PaletteColor>,
     mouse_scroll_resize: bool,
     mouse_hover_tips: bool,
+    hide_scroll_indicator_when_idle: bool,
     dimmed: bool,
     guest_choice_indicator: Option<GuestChoiceIndicator>,
     attention_marker: Option<FrameAttentionMarker>,
@@ -218,6 +220,7 @@ impl PaneFrame {
             color_override: None,
             mouse_scroll_resize: frame_params.mouse_scroll_resize,
             mouse_hover_tips: frame_params.mouse_hover_tips,
+            hide_scroll_indicator_when_idle: frame_params.hide_scroll_indicator_when_idle,
             dimmed: frame_params.dimmed,
             guest_choice_indicator: frame_params.guest_choice_indicator,
             attention_marker: None,
@@ -319,7 +322,8 @@ impl PaneFrame {
         max_length: usize,
     ) -> Option<(Vec<TerminalCharacter>, usize)> {
         // string and length because of color
-        let has_scroll = self.scroll_position.0 > 0 || self.scroll_position.1 > 0;
+        let has_scroll = self.scroll_position.0 > 0
+            || (!self.hide_scroll_indicator_when_idle && self.scroll_position.1 > 0);
         if has_scroll && self.is_selectable {
             // TODO: don't show SCROLL at all for plugins
             let pin_indication = if self.is_floating && self.is_selectable {
@@ -1073,7 +1077,8 @@ impl PaneFrame {
         &self,
         max_length: usize,
     ) -> Option<(Vec<TerminalCharacter>, usize)> {
-        let has_scroll = self.scroll_position.0 > 0 || self.scroll_position.1 > 0;
+        let has_scroll = self.scroll_position.0 > 0
+            || (!self.hide_scroll_indicator_when_idle && self.scroll_position.1 > 0);
         if !(has_scroll && self.is_selectable) {
             return None;
         }
@@ -1643,6 +1648,7 @@ mod tests {
                 blank_title: false,
                 mouse_scroll_resize,
                 mouse_hover_tips: true,
+                hide_scroll_indicator_when_idle: false,
                 dimmed: false,
                 guest_choice_indicator: None,
             },
@@ -1677,6 +1683,52 @@ mod tests {
         row.iter()
             .flat_map(|c| c.terminal_characters.iter().cloned())
             .collect()
+    }
+
+    #[test]
+    fn scroll_indicator_defaults_to_showing_available_history() {
+        for focused in [false, true] {
+            for framed in [false, true] {
+                let mut frame = title_frame("shell", 80, framed);
+                frame.is_main_client = focused;
+                frame.focused_client = focused.then_some(1);
+                assert!(!characters_to_string(&first_row(&frame)).contains("SCROLL"));
+                frame.scroll_position = (0, 100);
+                assert!(characters_to_string(&first_row(&frame)).contains("SCROLL"));
+                frame.scroll_position = (12, 100);
+                assert!(characters_to_string(&first_row(&frame)).contains("12/100"));
+            }
+        }
+    }
+
+    #[test]
+    fn hide_idle_scroll_indicator_applies_to_active_and_inactive_panes() {
+        for focused in [false, true] {
+            for (framed, floating) in [(true, false), (true, true), (false, false)] {
+                let mut frame = title_frame("shell", 80, framed);
+                frame.hide_scroll_indicator_when_idle = true;
+                frame.is_main_client = focused;
+                frame.focused_client = focused.then_some(1);
+                frame.is_floating = floating;
+                frame.is_pinned = floating;
+                let live_title = characters_to_string(&first_row(&frame));
+                if floating {
+                    assert!(live_title.contains("PIN [+]"));
+                }
+
+                frame.scroll_position = (0, 100);
+                assert_eq!(characters_to_string(&first_row(&frame)), live_title);
+                frame.scroll_position = (12, 100);
+                let scrolling_title = characters_to_string(&first_row(&frame));
+                assert!(scrolling_title.contains("SCROLL"));
+                assert!(scrolling_title.contains("12/100"));
+                if floating {
+                    assert!(scrolling_title.contains("PIN [+]"));
+                }
+                frame.scroll_position = (0, 100);
+                assert_eq!(characters_to_string(&first_row(&frame)), live_title);
+            }
+        }
     }
 
     fn assert_cells_are_whole_clusters(cells: &[TerminalCharacter], title: &str) {
