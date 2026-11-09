@@ -571,6 +571,12 @@ context_menu {
 //
 // mouse_hover_tips false
 
+// Hide the SCROLL indicator unless the pane is scrolled back.
+// Applies to active and inactive panes. Scroll position indicators remain visible.
+// Default: false
+//
+// hide_scroll_indicator_when_idle false
+
 // Whether triple-clicking inside command output marked by the shell (OSC 133) selects
 // the command and its output instead of the logical line
 // Default: true

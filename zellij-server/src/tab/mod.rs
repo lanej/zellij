@@ -338,6 +338,7 @@ pub(crate) struct Tab {
     mouse_scroll_resize: bool,
     mouse_hover_effects: bool,
     mouse_hover_tips: bool,
+    hide_scroll_indicator_when_idle: bool,
     focus_follows_mouse: bool,
     mouse_click_through: bool,
     context_menu_enabled: bool,
@@ -1051,6 +1052,7 @@ impl Tab {
         mouse_scroll_resize: bool,
         mouse_hover_effects: bool,
         mouse_hover_tips: bool,
+        hide_scroll_indicator_when_idle: bool,
         focus_follows_mouse: bool,
         mouse_click_through: bool,
         web_server_ip: IpAddr,
@@ -1201,6 +1203,7 @@ impl Tab {
             mouse_scroll_resize,
             mouse_hover_effects,
             mouse_hover_tips,
+            hide_scroll_indicator_when_idle,
             focus_follows_mouse,
             mouse_click_through,
             context_menu_enabled: true,
@@ -1928,6 +1931,7 @@ impl Tab {
                     false,
                     self.mouse_scroll_resize,
                     self.mouse_hover_tips,
+                    self.hide_scroll_indicator_when_idle,
                     self.dimmed_clients.clone(),
                     &self.client_display_slots.borrow(),
                 );
@@ -5589,6 +5593,7 @@ impl Tab {
                 &self.mouse_help_text_visible,
                 self.mouse_scroll_resize,
                 self.mouse_hover_tips,
+                self.hide_scroll_indicator_when_idle,
             )
             .with_context(err_context)
             .non_fatal();
@@ -5610,6 +5615,7 @@ impl Tab {
                     &self.mouse_help_text_visible,
                     self.mouse_scroll_resize,
                     self.mouse_hover_tips,
+                    self.hide_scroll_indicator_when_idle,
                 )
                 .with_context(err_context)
                 .non_fatal();
@@ -8866,6 +8872,10 @@ impl Tab {
     }
     pub fn update_mouse_hover_tips(&mut self, mouse_hover_tips: bool) {
         self.mouse_hover_tips = mouse_hover_tips;
+    }
+    pub fn update_hide_scroll_indicator_when_idle(&mut self, hide_when_idle: bool) {
+        self.hide_scroll_indicator_when_idle = hide_when_idle;
+        self.set_force_render();
     }
     pub fn update_focus_follows_mouse(&mut self, focus_follows_mouse: bool) {
         self.focus_follows_mouse = focus_follows_mouse;

@@ -3422,6 +3422,11 @@ impl Options {
         let mouse_hover_tips =
             kdl_property_first_arg_as_bool_or_error!(kdl_options, "mouse_hover_tips")
                 .map(|(v, _)| v);
+        let hide_scroll_indicator_when_idle = kdl_property_first_arg_as_bool_or_error!(
+            kdl_options,
+            "hide_scroll_indicator_when_idle"
+        )
+        .map(|(v, _)| v);
         let web_server_ip =
             match kdl_property_first_arg_as_string_or_error!(kdl_options, "web_server_ip") {
                 Some((string, entry)) => Some(IpAddr::from_str(string).map_err(|_| {
@@ -3606,6 +3611,7 @@ impl Options {
             scroll_mode_sync,
             mouse_hover_effects,
             mouse_hover_tips,
+            hide_scroll_indicator_when_idle,
             visual_bell,
             focus_follows_mouse,
             mouse_click_through,
@@ -5130,6 +5136,33 @@ impl Options {
             None
         }
     }
+    fn hide_scroll_indicator_when_idle_to_kdl(&self, add_comments: bool) -> Option<KdlNode> {
+        let comment_text = format!(
+            "{}\n{}\n{}",
+            " ",
+            "// Hide the SCROLL indicator unless the pane is scrolled back",
+            "// default is false",
+        );
+
+        let create_node = |node_value: bool| -> KdlNode {
+            let mut node = KdlNode::new("hide_scroll_indicator_when_idle");
+            node.push(KdlValue::Bool(node_value));
+            node
+        };
+        if let Some(hide_scroll_indicator_when_idle) = self.hide_scroll_indicator_when_idle {
+            let mut node = create_node(hide_scroll_indicator_when_idle);
+            if add_comments {
+                node.set_leading(format!("{}\n", comment_text));
+            }
+            Some(node)
+        } else if add_comments {
+            let mut node = create_node(false);
+            node.set_leading(format!("{}\n// ", comment_text));
+            Some(node)
+        } else {
+            None
+        }
+    }
     fn mouse_hover_effects_to_kdl(&self, add_comments: bool) -> Option<KdlNode> {
         let comment_text = format!(
             "{}\n{}\n{}",
@@ -5852,6 +5885,11 @@ impl Options {
         }
         if let Some(mouse_hover_tips) = self.mouse_hover_tips_to_kdl(add_comments) {
             nodes.push(mouse_hover_tips);
+        }
+        if let Some(hide_scroll_indicator_when_idle) =
+            self.hide_scroll_indicator_when_idle_to_kdl(add_comments)
+        {
+            nodes.push(hide_scroll_indicator_when_idle);
         }
         if let Some(visual_bell) = self.visual_bell_to_kdl(add_comments) {
             nodes.push(visual_bell);
@@ -11478,4 +11516,48 @@ fn the_default_config_offers_to_hide_and_show_bars_in_the_right_click_menu() {
         &config.context_menu.common,
         &ContextMenuAction::Action(Action::ShowBars)
     ));
+}
+
+#[test]
+fn hide_scroll_indicator_when_idle_defaults_to_unspecified() {
+    assert_eq!(
+        Config::from_default_assets()
+            .unwrap()
+            .options
+            .hide_scroll_indicator_when_idle,
+        None,
+    );
+    let options = Options::from_kdl(&KdlDocument::new()).unwrap();
+    assert_eq!(options.hide_scroll_indicator_when_idle, None);
+    assert!(!options.hide_scroll_indicator_when_idle.unwrap_or(false));
+    assert!(!Options::to_kdl(&options, false)
+        .iter()
+        .any(|node| node.name().value() == "hide_scroll_indicator_when_idle"));
+}
+
+#[test]
+fn hide_scroll_indicator_when_idle_round_trips_through_kdl() {
+    for enabled in [true, false] {
+        let document: KdlDocument = format!("hide_scroll_indicator_when_idle {enabled}")
+            .parse()
+            .unwrap();
+        let options = Options::from_kdl(&document).unwrap();
+        assert_eq!(options.hide_scroll_indicator_when_idle, Some(enabled));
+        for add_comments in [true, false] {
+            let mut serialized = KdlDocument::new();
+            serialized.nodes_mut().extend(options.to_kdl(add_comments));
+            let reparsed = Options::from_kdl(&serialized.to_string().parse().unwrap()).unwrap();
+            assert_eq!(reparsed.hide_scroll_indicator_when_idle, Some(enabled));
+        }
+    }
+}
+
+#[test]
+fn hide_scroll_indicator_when_idle_rejects_non_boolean_values() {
+    for value in ["1", "\"true\""] {
+        let document = format!("hide_scroll_indicator_when_idle {value}")
+            .parse()
+            .unwrap();
+        assert!(Options::from_kdl(&document).is_err());
+    }
 }

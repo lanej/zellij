@@ -334,6 +334,10 @@ web_sharing "disabled"
 // default is true
 // mouse_hover_tips false
  
+// Hide the SCROLL indicator unless the pane is scrolled back
+// default is false
+// hide_scroll_indicator_when_idle false
+ 
 // Whether to show visual bell indicators (pane/tab frame flash and [!] suffix)
 // default is true
 // visual_bell true

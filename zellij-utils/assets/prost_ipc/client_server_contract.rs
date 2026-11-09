@@ -2334,6 +2334,8 @@ pub struct Options {
     pub hidden_bars_notification: ::core::option::Option<bool>,
     #[prost(bool, optional, tag="87")]
     pub mode_hints_when_bars_hidden: ::core::option::Option<bool>,
+    #[prost(bool, optional, tag="88")]
+    pub hide_scroll_indicator_when_idle: ::core::option::Option<bool>,
 }
 /// Pane-targeting action messages
 #[allow(clippy::derive_partial_eq_without_eq)]

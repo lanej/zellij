@@ -1212,6 +1212,7 @@ impl From<crate::input::options::Options>
             scroll_mode_sync: options.scroll_mode_sync,
             mouse_hover_effects: options.mouse_hover_effects,
             mouse_hover_tips: options.mouse_hover_tips,
+            hide_scroll_indicator_when_idle: options.hide_scroll_indicator_when_idle,
             web_server_ip: options.web_server_ip.map(|ip| ip.to_string()),
             web_server_port: options.web_server_port.map(|p| p as u32),
             web_server_cert: options
@@ -1381,6 +1382,7 @@ impl TryFrom<crate::client_server_contract::client_server_contract::Options>
             scroll_mode_sync: options.scroll_mode_sync,
             mouse_hover_effects: options.mouse_hover_effects,
             mouse_hover_tips: options.mouse_hover_tips,
+            hide_scroll_indicator_when_idle: options.hide_scroll_indicator_when_idle,
             web_server_ip: options
                 .web_server_ip
                 .map(|ip| ip.parse())

@@ -242,6 +242,7 @@ fn create_new_tab_with_plugin_receiver(
         mouse_scroll_resize,
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         false, // focus_follows_mouse
         false, // mouse_click_through
         web_server_ip,
@@ -334,6 +335,7 @@ fn create_new_tab_with_layout(size: Size, layout: TiledPaneLayout) -> Tab {
         mouse_scroll_resize,
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         false, // focus_follows_mouse
         false, // mouse_click_through
         web_server_ip,
@@ -432,6 +434,7 @@ fn create_new_tab_with_cell_size(
         mouse_scroll_resize,
         true, // mouse_hover_effects
         true,
+        false, // hide_scroll_indicator_when_idle
         false, // focus_follows_mouse
         false, // mouse_click_through
         web_server_ip,
@@ -18319,6 +18322,7 @@ fn create_tab_with_receivers_without_layout(
         true,
         true,
         true,
+        false, // hide_scroll_indicator_when_idle
         false,
         false,
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -19456,6 +19460,7 @@ pub fn a_pane_that_fails_to_render_does_not_fail_the_tab_render() {
             &HashMap::new(),
             false,
             false,
+            false, // hide_scroll_indicator_when_idle
         )
         .is_ok());
     let mut floating_output = crate::output::Output::default();
@@ -19470,6 +19475,7 @@ pub fn a_pane_that_fails_to_render_does_not_fail_the_tab_render() {
             &HashMap::new(),
             false,
             false,
+            false, // hide_scroll_indicator_when_idle
         )
         .is_ok());
 }
