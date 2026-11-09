@@ -5587,6 +5587,7 @@ setting_keys! {
     ScrollModeSync => (TopLevel, "scroll_mode_sync", false, Flag),
     MouseHoverEffects => (TopLevel, "mouse_hover_effects", false, Flag),
     MouseHoverTips => (TopLevel, "mouse_hover_tips", false, Flag),
+    HideScrollIndicatorWhenIdle => (TopLevel, "hide_scroll_indicator_when_idle", false, Flag),
     VisualBell => (TopLevel, "visual_bell", false, Flag),
     FocusFollowsMouse => (TopLevel, "focus_follows_mouse", false, Flag),
     MouseClickThrough => (TopLevel, "mouse_click_through", false, Flag),

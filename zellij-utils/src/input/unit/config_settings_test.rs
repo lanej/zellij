@@ -71,6 +71,7 @@ fn every_option_set() -> Options {
         scroll_mode_sync: Some(false),
         mouse_hover_effects: Some(false),
         mouse_hover_tips: Some(false),
+        hide_scroll_indicator_when_idle: Some(false),
         visual_bell: Some(false),
         focus_follows_mouse: Some(true),
         mouse_click_through: Some(true),

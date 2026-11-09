@@ -156,6 +156,7 @@ fn option_values(options: &Options, values: &mut BTreeMap<SettingKey, Option<Str
         scroll_mode_sync,
         mouse_hover_effects,
         mouse_hover_tips,
+        hide_scroll_indicator_when_idle,
         visual_bell,
         focus_follows_mouse,
         mouse_click_through,
@@ -299,6 +300,10 @@ fn option_values(options: &Options, values: &mut BTreeMap<SettingKey, Option<Str
             display_text(mouse_hover_effects),
         ),
         (SettingKey::MouseHoverTips, display_text(mouse_hover_tips)),
+        (
+            SettingKey::HideScrollIndicatorWhenIdle,
+            display_text(hide_scroll_indicator_when_idle),
+        ),
         (SettingKey::VisualBell, display_text(visual_bell)),
         (
             SettingKey::FocusFollowsMouse,
@@ -989,6 +994,9 @@ pub fn copy_setting(target: &mut Config, source: &Config, key: SettingKey) {
         SettingKey::ScrollModeSync => options.scroll_mode_sync = from.scroll_mode_sync,
         SettingKey::MouseHoverEffects => options.mouse_hover_effects = from.mouse_hover_effects,
         SettingKey::MouseHoverTips => options.mouse_hover_tips = from.mouse_hover_tips,
+        SettingKey::HideScrollIndicatorWhenIdle => {
+            options.hide_scroll_indicator_when_idle = from.hide_scroll_indicator_when_idle
+        },
         SettingKey::VisualBell => options.visual_bell = from.visual_bell,
         SettingKey::FocusFollowsMouse => options.focus_follows_mouse = from.focus_follows_mouse,
         SettingKey::MouseClickThrough => options.mouse_click_through = from.mouse_click_through,
