@@ -1499,26 +1499,27 @@ pub fn start_client(
         })
         .unwrap();
 
-    let handle_error = |backtrace: String, include_grapheme_cluster_exit: bool| {
-        quiet_host_input(
-            &*os_input,
-            &stdin_ansi_parser,
-            !explicitly_disable_kitty_keyboard_protocol,
-            EXIT_DRAIN_TIMEOUT,
-        );
-        let _ = os_input.unset_raw_mode();
-        os_input.restore_console_mode();
-        let error = terminal_teardown_message(
-            &backtrace,
-            full_screen_ws.rows,
-            false,
-            include_grapheme_cluster_exit,
-        );
-        let mut stdout = os_input.get_stdout_writer();
-        let _ = stdout.write_all(error.as_bytes());
-        let _ = stdout.flush();
-        std::process::exit(1);
-    };
+    let handle_error =
+        |os_input: &dyn ClientOsApi, backtrace: String, include_grapheme_cluster_exit: bool| {
+            quiet_host_input(
+                os_input,
+                &stdin_ansi_parser,
+                !explicitly_disable_kitty_keyboard_protocol,
+                EXIT_DRAIN_TIMEOUT,
+            );
+            let _ = os_input.unset_raw_mode();
+            os_input.restore_console_mode();
+            let error = terminal_teardown_message(
+                &backtrace,
+                full_screen_ws.rows,
+                false,
+                include_grapheme_cluster_exit,
+            );
+            let mut stdout = os_input.get_stdout_writer();
+            let _ = stdout.write_all(error.as_bytes());
+            let _ = stdout.flush();
+            std::process::exit(1);
+        };
 
     let mut exit_msg = String::new();
     let mut host_status_writer = host_status::HostStatusWriter::default();
@@ -1540,13 +1541,21 @@ pub fn start_client(
                 os_input.send_to_server(ClientToServerMsg::ClientExited);
 
                 if let ExitReason::Error(_) = reason {
-                    handle_error(reason.to_string(), outer_grapheme_cluster_mode.is_enabled());
+                    handle_error(
+                        &*os_input,
+                        reason.to_string(),
+                        outer_grapheme_cluster_mode.is_enabled(),
+                    );
                 }
                 exit_msg = reason.to_string();
                 break;
             },
             ClientInstruction::Error(backtrace) => {
-                handle_error(backtrace, outer_grapheme_cluster_mode.is_enabled());
+                handle_error(
+                    &*os_input,
+                    backtrace,
+                    outer_grapheme_cluster_mode.is_enabled(),
+                );
             },
             ClientInstruction::Render(output) => {
                 let mut stdout = os_input.get_stdout_writer();
@@ -1554,7 +1563,11 @@ pub fn start_client(
                     let message = format!("Failed to write to the terminal: {}", e);
                     log::error!("{}", message);
                     os_input.send_to_server(ClientToServerMsg::ClientExited);
-                    handle_error(message, outer_grapheme_cluster_mode.is_enabled());
+                    handle_error(
+                        &*os_input,
+                        message,
+                        outer_grapheme_cluster_mode.is_enabled(),
+                    );
                 }
             },
             ClientInstruction::OuterGraphemeClusterMode(value) => {
