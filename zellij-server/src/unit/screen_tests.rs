@@ -20269,3 +20269,102 @@ mod session_rename {
         assert!(h.screen.session_rename_drafts.is_empty());
     }
 }
+
+#[test]
+fn nested_cycle_guard_retains_every_containing_client_and_removes_detached_ancestry() {
+    use zellij_utils::nested_session::NestedSessionMessage;
+    let (mut screen, _, _) =
+        create_new_screen_with_capture(Size { cols: 80, rows: 24 }, true, true, true, false);
+    screen.add_client(2, false).unwrap();
+    let (writer, received) = channels::unbounded();
+    screen.bus.senders.to_pty_writer = Some(SenderWithContext::new(writer));
+    for (client_id, host) in [(1, "first-host"), (2, "second-host")] {
+        screen.handle_nested_session_message_from_host(
+            client_id,
+            NestedSessionMessage::AnnounceAck {
+                ancestry: vec![host.to_owned()],
+                capabilities: vec![],
+                descend_keys: vec![],
+            },
+        );
+    }
+    screen.handle_nested_guest_announce(PaneId::Terminal(9), "first-host".to_owned(), vec![]);
+    let (reply, _) = received
+        .try_recv()
+        .expect("cycle rejection must reply to the client");
+    match reply {
+        PtyWriteInstruction::Write(bytes, 9, None) => {
+            assert!(
+                matches!(decode_nested_frame(&bytes), Some(NestedSessionMessage::AnnounceAck { ancestry, .. }) if ancestry.contains(&"first-host".to_owned()) && ancestry.contains(&"second-host".to_owned()))
+            );
+        },
+        other => panic!("unexpected rejection reply: {other:?}"),
+    }
+    assert!(!screen.nested_guest_tracker.is_tracked(PaneId::Terminal(9)));
+    screen.remove_client(1).unwrap();
+    assert_eq!(
+        screen.containing_session_names(),
+        vec!["second-host".to_owned()]
+    );
+}
+
+#[test]
+fn nested_cycle_guard_detaches_only_the_recursive_viewer_before_mutating_ancestry() {
+    use zellij_utils::nested_session::NestedSessionMessage;
+    let (mut screen, _, received) =
+        create_new_screen_with_capture(Size { cols: 80, rows: 24 }, true, true, true, false);
+    screen.add_client(2, false).unwrap();
+    screen.handle_nested_session_message_from_host(
+        1,
+        NestedSessionMessage::AnnounceAck {
+            ancestry: vec!["safe-host".to_owned()],
+            capabilities: vec![],
+            descend_keys: vec![],
+        },
+    );
+    while received.try_recv().is_ok() {}
+    screen.handle_nested_session_message_from_host(
+        2,
+        NestedSessionMessage::AncestryUpdate {
+            ancestry: vec!["zellij-test".to_owned()],
+        },
+    );
+    let (instruction, _) = received.try_recv().expect("recursive viewer is detached");
+    assert!(
+        matches!(instruction, ServerInstruction::DetachSession(clients, None) if clients == vec![2])
+    );
+    assert_eq!(
+        screen.containing_session_names(),
+        vec!["safe-host".to_owned()]
+    );
+}
+
+#[test]
+fn nested_cycle_guard_ignores_ancestry_updates_after_detach() {
+    use zellij_utils::nested_session::NestedSessionMessage;
+    let (mut screen, _, _) =
+        create_new_screen_with_capture(Size { cols: 80, rows: 24 }, true, true, true, false);
+    screen.handle_nested_session_message_from_host(
+        1,
+        NestedSessionMessage::AnnounceAck {
+            ancestry: vec!["host".to_owned()],
+            capabilities: vec![],
+            descend_keys: vec![],
+        },
+    );
+    assert_eq!(screen.containing_session_names(), vec!["host".to_owned()]);
+    screen.remove_client(1).unwrap();
+    for message in [
+        NestedSessionMessage::AncestryUpdate {
+            ancestry: vec!["ghost-host".to_owned()],
+        },
+        NestedSessionMessage::AnnounceAck {
+            ancestry: vec!["ghost-host".to_owned()],
+            capabilities: vec![],
+            descend_keys: vec![],
+        },
+    ] {
+        screen.handle_nested_session_message_from_host(1, message);
+        assert!(screen.containing_session_names().is_empty());
+    }
+}

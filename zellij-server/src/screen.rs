@@ -2154,6 +2154,8 @@ pub(crate) struct Screen {
     paste_buffer_read_enabled: bool,
     nested_guest_tracker: NestedGuestTracker,
     nested_ancestry: Vec<String>,
+    client_nested_ancestries: BTreeMap<ClientId, Vec<String>>,
+    retired_nested_clients: HashSet<ClientId>,
     nested_via_client_id: Option<ClientId>,
     nested_fullscreen_panes: HashSet<PaneId>,
     own_fullscreen_requested: bool,
@@ -2528,6 +2530,8 @@ impl Screen {
             paste_buffer_read_enabled: false,
             nested_guest_tracker: NestedGuestTracker::default(),
             nested_ancestry: vec![],
+            client_nested_ancestries: BTreeMap::new(),
+            retired_nested_clients: HashSet::new(),
             nested_via_client_id: None,
             nested_fullscreen_panes: HashSet::new(),
             own_fullscreen_requested: false,
@@ -4600,6 +4604,29 @@ impl Screen {
             PaneId::Terminal(terminal_id) => terminal_id,
             PaneId::Plugin(_) => return,
         };
+        if guest_session_name == self.session_name
+            || self
+                .containing_session_names()
+                .contains(&guest_session_name)
+        {
+            let mut ancestry = self.containing_session_names();
+            ancestry.push(self.session_name.clone());
+            let acknowledgement = NestedSessionMessage::AnnounceAck {
+                ancestry,
+                capabilities: vec![],
+                descend_keys: vec![],
+            };
+            let _ = self
+                .bus
+                .senders
+                .send_to_pty_writer(PtyWriteInstruction::Write(
+                    nested_session::encode_frame(&acknowledgement),
+                    terminal_id,
+                    None,
+                ));
+            log::warn!("Rejected nested session cycle through {guest_session_name:?}");
+            return;
+        }
         let announce_kind = self
             .nested_guest_tracker
             .on_announce(pane_id, Instant::now());
@@ -4634,7 +4661,7 @@ impl Screen {
             },
         }
         self.guest_capabilities.insert(pane_id, guest_capabilities);
-        let mut ancestry = self.nested_ancestry.clone();
+        let mut ancestry = self.containing_session_names();
         ancestry.push(self.session_name.clone());
         let announce_ack = NestedSessionMessage::AnnounceAck {
             ancestry,
@@ -5403,8 +5430,20 @@ impl Screen {
         terminal_ids
     }
 
+    fn containing_session_names(&self) -> Vec<String> {
+        let mut names = vec![];
+        for ancestry in self.client_nested_ancestries.values() {
+            for name in ancestry {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+        }
+        names
+    }
+
     fn broadcast_ancestry_update_to_guests(&self) {
-        let mut ancestry = self.nested_ancestry.clone();
+        let mut ancestry = self.containing_session_names();
         ancestry.push(self.session_name.clone());
         let message = NestedSessionMessage::AncestryUpdate { ancestry };
         let frame = nested_session::encode_frame(&message);
@@ -5547,6 +5586,23 @@ impl Screen {
         client_id: ClientId,
         message: NestedSessionMessage,
     ) {
+        if self.retired_nested_clients.contains(&client_id) {
+            return;
+        }
+        if let NestedSessionMessage::AnnounceAck { ref ancestry, .. }
+        | NestedSessionMessage::AncestryUpdate { ref ancestry } = message
+        {
+            if ancestry.contains(&self.session_name) {
+                log::warn!(
+                    "Detaching client {client_id}: its containing ancestry includes this session"
+                );
+                let _ = self
+                    .bus
+                    .senders
+                    .send_to_server(ServerInstruction::DetachSession(vec![client_id], None));
+                return;
+            }
+        }
         match message {
             NestedSessionMessage::AnnounceAck {
                 ancestry,
@@ -5557,6 +5613,8 @@ impl Screen {
                     "nested session handshake complete: this session is nested inside ancestry {:?}",
                     ancestry
                 );
+                self.client_nested_ancestries
+                    .insert(client_id, ancestry.clone());
                 self.nested_ancestry = ancestry;
                 self.nested_via_client_id = Some(client_id);
                 self.host_descend_keys = descend_keys;
@@ -5594,6 +5652,8 @@ impl Screen {
                 self.update_all_clients_nesting_mode_info();
             },
             NestedSessionMessage::AncestryUpdate { ancestry } => {
+                self.client_nested_ancestries
+                    .insert(client_id, ancestry.clone());
                 self.nested_ancestry = ancestry;
                 self.update_all_clients_nesting_mode_info();
                 self.broadcast_ancestry_update_to_guests();
@@ -6955,6 +7015,8 @@ impl Screen {
         self.pending_keybinds_requests.retain(|_, pending| {
             !matches!(pending.reply_to, KeybindsReplyTo::Host { client_id: host_client_id, .. } if host_client_id == client_id)
         });
+        self.retired_nested_clients.insert(client_id);
+        let removed_ancestry = self.client_nested_ancestries.remove(&client_id).is_some();
         if self.nested_via_client_id == Some(client_id) {
             self.host_capabilities = vec![];
             self.last_reported_upward = None;
@@ -6963,6 +7025,9 @@ impl Screen {
             self.host_descended = false;
             self.host_descend_keys = vec![];
             self.update_all_clients_nesting_mode_info();
+            self.broadcast_ancestry_update_to_guests();
+        }
+        if removed_ancestry {
             self.broadcast_ancestry_update_to_guests();
         }
         self.log_and_report_session_state().non_fatal();
@@ -8211,6 +8276,7 @@ impl Screen {
                 );
             }
         }
+        self.broadcast_ancestry_update_to_guests();
         Ok(Ok(()))
     }
 

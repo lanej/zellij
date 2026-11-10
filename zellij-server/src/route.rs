@@ -3652,6 +3652,9 @@ pub(crate) fn route_thread_main(
                         ClientToServerMsg::NestedSessionFrameFromHost { ref payload_bytes } => {
                             match zellij_utils::nested_session::decode_payload(payload_bytes) {
                                 Some(message @ zellij_utils::nested_session::NestedSessionMessage::AnnounceAck { .. }) => {
+                                    if let zellij_utils::nested_session::NestedSessionMessage::AnnounceAck { ref ancestry, .. } = message {
+                                        session_state.write().unwrap().note_client_ancestry(client_id, ancestry);
+                                    }
                                     let _ = send_to_screen_or_retry_queue!(
                                         senders,
                                         ScreenInstruction::NestedSessionMessageFromHost { client_id, message },
@@ -3700,6 +3703,9 @@ pub(crate) fn route_thread_main(
                                     );
                                 },
                                 Some(message @ zellij_utils::nested_session::NestedSessionMessage::AncestryUpdate { .. }) => {
+                                    if let zellij_utils::nested_session::NestedSessionMessage::AncestryUpdate { ref ancestry } = message {
+                                        session_state.write().unwrap().note_client_ancestry(client_id, ancestry);
+                                    }
                                     let _ = send_to_screen_or_retry_queue!(
                                         senders,
                                         ScreenInstruction::NestedSessionMessageFromHost { client_id, message },

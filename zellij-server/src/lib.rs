@@ -1590,7 +1590,8 @@ macro_rules! send_to_client {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SessionState {
     clients: HashMap<ClientId, Option<(Size, bool)>>, // bool -> is_web_client
-    pipes: HashMap<String, ClientId>,                 // String => pipe_id
+    client_session_ancestries: HashMap<ClientId, Vec<String>>,
+    pipes: HashMap<String, ClientId>,     // String => pipe_id
     watchers: HashMap<ClientId, bool>, // watcher clients (read-only observers) bool -> is_web_client
     last_active_client: Option<ClientId>, // last client that sent a Key message
     /// Host-query forward tokens that have been dispatched to a
@@ -1621,6 +1622,7 @@ impl SessionState {
     pub fn new() -> Self {
         SessionState {
             clients: HashMap::new(),
+            client_session_ancestries: HashMap::new(),
             pipes: HashMap::new(),
             watchers: HashMap::new(),
             last_active_client: None,
@@ -1664,6 +1666,7 @@ impl SessionState {
     /// can proceed.
     pub fn remove_client(&mut self, client_id: ClientId) -> Vec<u32> {
         self.clients.remove(&client_id);
+        self.client_session_ancestries.remove(&client_id);
         self.pipes.retain(|_p_id, c_id| c_id != &client_id);
         self.clear_last_active_client(client_id);
         let stuck: Vec<u32> = self
@@ -1675,6 +1678,20 @@ impl SessionState {
             self.forwards_in_flight.remove(token);
         }
         stuck
+    }
+    pub fn note_client_ancestry(&mut self, client_id: ClientId, ancestry: &[String]) {
+        if self.clients.contains_key(&client_id) {
+            self.client_session_ancestries
+                .insert(client_id, ancestry.to_vec());
+        }
+    }
+    fn session_switch_error(&self, client_id: ClientId, target: Option<&str>) -> Option<String> {
+        let target = target?;
+        self.client_session_ancestries
+            .get(&client_id)?
+            .iter()
+            .any(|ancestor| ancestor == target)
+            .then(|| format!("Cannot switch to containing session \"{target}\": this would create a nested session cycle."))
     }
     pub fn set_client_size(&mut self, client_id: ClientId, size: Size) {
         self.clients
@@ -1912,6 +1929,37 @@ mod session_state_tests {
         let mut s = SessionState::new();
         s.clients.insert(id, None);
         s
+    }
+
+    #[test]
+    fn session_switch_rejects_only_the_callers_containing_sessions() {
+        let mut state = with_client(1);
+        state.clients.insert(2, None);
+        state.note_client_ancestry(1, &["outer".into(), "middle".into()]);
+        state.note_client_ancestry(2, &["other-host".into()]);
+        assert!(state.session_switch_error(1, Some("outer")).is_some());
+        assert!(state.session_switch_error(1, Some("middle")).is_some());
+        assert!(state.session_switch_error(1, Some("unrelated")).is_none());
+        assert!(state.session_switch_error(2, Some("outer")).is_none());
+        assert!(state.session_switch_error(1, None).is_none());
+    }
+
+    #[test]
+    fn session_switch_uses_updated_ancestry_and_forgets_disconnected_clients() {
+        let mut state = with_client(1);
+        state.note_client_ancestry(1, &["before-rename".into()]);
+        state.note_client_ancestry(1, &["after-rename".into()]);
+        assert!(state
+            .session_switch_error(1, Some("before-rename"))
+            .is_none());
+        assert!(state
+            .session_switch_error(1, Some("after-rename"))
+            .is_some());
+        state.remove_client(1);
+        state.clients.insert(1, None);
+        assert!(state
+            .session_switch_error(1, Some("after-rename"))
+            .is_none());
     }
 
     #[test]
@@ -3943,6 +3991,10 @@ pub fn start_server_impl(
         }
         let (instruction, mut err_ctx) = server_receiver.recv().unwrap();
         err_ctx.add_call(ContextType::IPCServer((&instruction).into()));
+        let close_current = matches!(
+            &instruction,
+            ServerInstruction::SwitchSessionAndCloseCurrent(..)
+        );
         match instruction {
             ServerInstruction::FirstClientConnected(cli_assets, is_web_client, client_id) => {
                 let is_resumed_session = match &cli_assets.layout {
@@ -4738,36 +4790,6 @@ pub fn start_server_impl(
                         .store(true, std::sync::atomic::Ordering::SeqCst);
                 }
             },
-            ServerInstruction::SwitchSessionAndCloseCurrent(
-                connect_to_session,
-                client_id,
-                completion_tx,
-            ) => {
-                let switching_away = connect_to_session.name.is_some()
-                    && connect_to_session.name.as_deref() != Some(own_session_name.as_str());
-                let command_was_run = session_data
-                    .read()
-                    .unwrap()
-                    .as_ref()
-                    .map(|s| {
-                        s.terminal_command_submitted
-                            .load(std::sync::atomic::Ordering::SeqCst)
-                    })
-                    .unwrap_or(true);
-                let other_clients_attached = session_state
-                    .read()
-                    .unwrap()
-                    .other_clients_are_attached(client_id);
-                let _ = to_server.send(ServerInstruction::SwitchSession(
-                    connect_to_session,
-                    client_id,
-                    completion_tx,
-                ));
-                if switching_away && !command_was_run && !other_clients_attached {
-                    delete_session_on_exit = true;
-                    let _ = to_server.send(ServerInstruction::KillSession);
-                }
-            },
             ServerInstruction::HistoryMove(history_move, client_id, completion_tx) => {
                 let live_sessions = session_data
                     .read()
@@ -4802,10 +4824,39 @@ pub fn start_server_impl(
                     },
                 }
             },
-            ServerInstruction::SwitchSession(mut connect_to_session, client_id, completion_tx) => {
+            ServerInstruction::SwitchSession(mut connect_to_session, client_id, completion_tx)
+            | ServerInstruction::SwitchSessionAndCloseCurrent(
+                mut connect_to_session,
+                client_id,
+                completion_tx,
+            ) => {
+                if reject_nested_session_switch(
+                    &session_state,
+                    &session_data,
+                    client_id,
+                    &connect_to_session,
+                ) {
+                    drop(completion_tx);
+                    continue;
+                }
                 if connect_to_session.name.as_deref() == Some(own_session_name.as_str()) {
                     log::error!("Cannot attach to same session");
                 } else {
+                    let close_after_switch = close_current
+                        && connect_to_session.name.is_some()
+                        && !session_state
+                            .read()
+                            .unwrap()
+                            .other_clients_are_attached(client_id)
+                        && session_data
+                            .read()
+                            .unwrap()
+                            .as_ref()
+                            .map(|s| {
+                                !s.terminal_command_submitted
+                                    .load(std::sync::atomic::Ordering::SeqCst)
+                            })
+                            .unwrap_or(false);
                     attach_switch_context(
                         &mut connect_to_session,
                         &mut client_histories,
@@ -4855,6 +4906,10 @@ pub fn start_server_impl(
                         .senders
                         .send_to_plugin(PluginInstruction::RemoveClient(client_id))
                         .unwrap();
+                    if close_after_switch {
+                        delete_session_on_exit = true;
+                        let _ = to_server.send(ServerInstruction::KillSession);
+                    }
                 }
             },
             ServerInstruction::AssociatePipeWithClient { pipe_id, client_id } => {
@@ -6148,6 +6203,35 @@ fn send_to_plugin_thread(
     if let Some(session_data) = session_data.read().unwrap().as_ref() {
         let _ = session_data.senders.send_to_plugin(instruction);
     }
+}
+
+fn reject_nested_session_switch(
+    session_state: &Arc<RwLock<SessionState>>,
+    session_data: &Arc<RwLock<Option<SessionMetaData>>>,
+    client_id: ClientId,
+    target: &ConnectToSession,
+) -> bool {
+    let error = session_state
+        .read()
+        .unwrap()
+        .session_switch_error(client_id, target.name.as_deref());
+    let Some(error) = error else { return false };
+    log::warn!("{error}");
+    send_to_plugin_thread(
+        session_data,
+        PluginInstruction::PromptRequest {
+            caller: crate::plugins::PromptCaller {
+                plugin_id: crate::plugins::SERVER_NOTICE_CALLER_ID,
+                client_id,
+                request_id: 2,
+            },
+            owner_client_id: client_id,
+            caller_pane_id: None,
+            request: zellij_utils::prompt::PromptRequest::notify(error)
+                .timeout(std::time::Duration::from_secs(5)),
+        },
+    );
+    true
 }
 
 fn client_configuration(
