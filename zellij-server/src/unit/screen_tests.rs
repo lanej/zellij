@@ -20275,7 +20275,6 @@ fn nested_cycle_guard_retains_every_containing_client_and_removes_detached_ances
     use zellij_utils::nested_session::NestedSessionMessage;
     let (mut screen, _, _) =
         create_new_screen_with_capture(Size { cols: 80, rows: 24 }, true, true, true, false);
-    screen.add_client(2, false).unwrap();
     let (writer, received) = channels::unbounded();
     screen.bus.senders.to_pty_writer = Some(SenderWithContext::new(writer));
     for (client_id, host) in [(1, "first-host"), (2, "second-host")] {
@@ -20313,7 +20312,6 @@ fn nested_cycle_guard_detaches_only_the_recursive_viewer_before_mutating_ancestr
     use zellij_utils::nested_session::NestedSessionMessage;
     let (mut screen, _, received) =
         create_new_screen_with_capture(Size { cols: 80, rows: 24 }, true, true, true, false);
-    screen.add_client(2, false).unwrap();
     screen.handle_nested_session_message_from_host(
         1,
         NestedSessionMessage::AnnounceAck {
