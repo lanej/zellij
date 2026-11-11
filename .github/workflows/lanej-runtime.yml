@@ -2,9 +2,9 @@ name: Lanej runtime
 
 on:
   push:
-    branches: [lanej-runtime]
+    branches: [lanej-runtime, lanej-runtime-next]
   pull_request:
-    branches: [lanej-runtime]
+    branches: [lanej-runtime, lanej-runtime-next]
   workflow_dispatch:
 
 permissions:
