@@ -645,6 +645,19 @@ pub trait Pane {
     fn scroll_to_previous_prompt(&mut self, _client_id: ClientId) {}
     fn scroll_to_next_prompt(&mut self, _client_id: ClientId) {}
     fn select_command_at_scroll_position(&mut self, _client_id: ClientId) {}
+    fn start_copy_mode(&mut self, _client_id: ClientId) -> bool {
+        false
+    }
+    fn end_copy_mode(&mut self, _client_id: ClientId) -> bool {
+        false
+    }
+    fn copy_mode_input(
+        &mut self,
+        _key: &str,
+        _client_id: ClientId,
+    ) -> crate::panes::copy_mode::CopyModeResult {
+        crate::panes::copy_mode::CopyModeResult::Exit
+    }
     fn copy_last_command_output(&mut self) -> Option<String> {
         None
     }
@@ -7675,6 +7688,53 @@ impl Tab {
     pub fn select_command_at_scroll_position(&mut self, client_id: ClientId) {
         if let Some(active_pane) = self.get_active_pane_or_floating_pane_mut(client_id) {
             active_pane.select_command_at_scroll_position(client_id);
+        }
+    }
+
+    pub fn start_copy_mode(&mut self, client_id: ClientId) -> bool {
+        self.get_active_pane_or_floating_pane_mut(client_id)
+            .is_some_and(|pane| pane.start_copy_mode(client_id))
+    }
+
+    pub fn end_copy_mode(&mut self, client_id: ClientId) -> Result<()> {
+        let mut terminals = vec![];
+        let mut finish = |pane: &mut Box<dyn Pane>| {
+            pane.end_copy_mode(client_id);
+            if !pane.is_scrolled() {
+                if let PaneId::Terminal(id) = pane.pid() {
+                    terminals.push(id);
+                }
+            }
+        };
+        for pane_id in self.get_static_and_floating_pane_ids() {
+            if let Some(pane) = self.get_pane_with_id_mut(pane_id) {
+                finish(pane);
+            }
+        }
+        // rationale(copy): Suppressed entries are keyed by the replacement pane,
+        // so their original terminal IDs cannot be used as map lookups.
+        for (_, pane) in self.suppressed_panes.values_mut() {
+            finish(pane);
+        }
+        for id in terminals {
+            self.process_pending_vte_events(id)?;
+        }
+        Ok(())
+    }
+
+    pub fn copy_mode_input(&mut self, key: &str, client_id: ClientId) -> Result<bool> {
+        use crate::panes::copy_mode::CopyModeResult;
+        let result = self
+            .get_active_pane_or_floating_pane_mut(client_id)
+            .map(|pane| pane.copy_mode_input(key, client_id))
+            .unwrap_or(CopyModeResult::Exit);
+        match result {
+            CopyModeResult::Continue => Ok(false),
+            CopyModeResult::Yank(text) => {
+                self.copy_text_to_clipboard(&text)?;
+                Ok(true)
+            },
+            CopyModeResult::Exit => Ok(true),
         }
     }
 
