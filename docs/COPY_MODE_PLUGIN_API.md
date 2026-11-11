@@ -1,6 +1,6 @@
 # Native copy-mode plugin API
 
-External plugins can choose cursor targets and temporary labels while Zellij owns the original pane, frozen text, selection, clipboard, and input ordering. This fork provides the enabling API. User plugins and their interaction policies belong in their own repositories or dotfiles, outside Zellij's default-plugin build and release assets. Built-in copy motions remain available.
+External plugins can choose cursor targets and temporary labels while Zellij owns the original pane, frozen text, selection, clipboard, and input ordering. The API exposes the native selection primitives; plugins choose matching, label assignment, and keymap policies. Native copy motions remain available.
 
 `zellij_tile::prelude::copy_mode` exposes generated protobuf request and response types, and `copy_mode(Request)` sends a request through the host. The server operates only on the acting client's active terminal copy session.
 
