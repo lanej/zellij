@@ -1609,6 +1609,20 @@ pub fn start_client(
                 os_input.send_to_server(ClientToServerMsg::ClientExited);
                 break;
             },
+            ClientInstruction::RenamedSession(name) => {
+                nested_reannounce.rename(name.clone());
+                envs::set_session_name(name.clone());
+                let announce = nested_session::NestedSessionMessage::Announce {
+                    session_name: name,
+                    capabilities: vec![
+                        nested_session::NestedSessionCapability::NestedControl,
+                        nested_session::NestedSessionCapability::HintReporting,
+                    ],
+                };
+                let mut stdout = os_input.get_stdout_writer();
+                let _ = stdout.write_all(&nested_session::encode_frame(&announce));
+                let _ = stdout.flush();
+            },
             ClientInstruction::SetSynchronizedOutput(enabled) => {
                 synchronised_output = enabled;
             },

@@ -390,6 +390,20 @@ impl InputHandler {
     fn handle_nested_session_frame_from_host(&mut self, payload_bytes: Vec<u8>) {
         self.nested_reannounce.note_host_contact();
         let decoded = nested_session::decode_payload(&payload_bytes);
+        if let Some(
+            NestedSessionMessage::AnnounceAck { ancestry, .. }
+            | NestedSessionMessage::AncestryUpdate { ancestry },
+        ) = decoded.as_ref()
+        {
+            if ancestry.contains(&self.nested_reannounce.session_name()) {
+                self.should_exit = true;
+                self.exit(ExitReason::Error(format!(
+                    "Cannot attach to containing session \"{}\": this would create a nested session cycle.",
+                    self.nested_reannounce.session_name()
+                )));
+                return;
+            }
+        }
         if let Some(message) = decoded.as_ref() {
             self.os_input.note_host_message(message);
         }
@@ -447,16 +461,6 @@ impl InputHandler {
                 should_break = true;
             },
             Action::Detach => {
-                self.os_input.send_to_server(ClientToServerMsg::Action {
-                    action,
-                    terminal_id: None,
-                    client_id,
-                    is_cli_client: false,
-                });
-                self.exit(ExitReason::NormalDetached);
-                should_break = true;
-            },
-            Action::SwitchSession { .. } => {
                 self.os_input.send_to_server(ClientToServerMsg::Action {
                     action,
                     terminal_id: None,
