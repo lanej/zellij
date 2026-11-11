@@ -6682,14 +6682,6 @@ Config {
                 },
             ],
             KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
-            ],
-            KeyWithModifier {
                 bare_key: Char(
                     '+',
                 ),
