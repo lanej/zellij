@@ -15,4 +15,12 @@ Reads require `ReadPaneContents`; mutations require `ChangeApplicationState`. In
 
 A plugin may call `intercept_key_presses()` with `InterceptInput` permission before setting labels. During native capture, `CustomMessage("copy_mode_key", "<session_id>:<key>")` delivers input before ordinary keybinding dispatch. Zellij retains a bounded FIFO and delivers one key at a time. Each successful label update acknowledges that key. Moving or clearing labels drains queued keys through native copy handling before later input can overtake them. Capture exceeding 1,024 queued keys exits copy mode. Popup, live-view, and passthrough ownership retain precedence. Cleanup is scoped to both client and plugin, including mode changes, disconnect, reload, and unload.
 
-The existing test fixture exercises literal read, label, move, and clear operations in `zellij-integration-tests/tests/copy_mode_plugin_api.rs`. It contains no character matching, jump-label assignment, paging, or user keymap policy. Run it through `cargo xtask integration-test --test copy_mode_plugin_api`, which rebuilds the fixture assets; narrow CI supplies a freshly built fixture through `ZELLIJ_COPY_MODE_FIXTURE_WASM`. The checks observe native OSC 52 emission, not host clipboard acceptance.
+The existing test fixture exercises literal read, label, move, and clear operations in `zellij-integration-tests/tests/copy_mode_plugin_api.rs`. It contains no character matching, jump-label assignment, paging, or user keymap policy. Build the fixture and select the integration-test target explicitly so no other plugin assets need rebuilding:
+
+```sh
+cargo build --locked -p fixture-plugin-for-tests --target wasm32-wasip1
+ZELLIJ_COPY_MODE_FIXTURE_WASM="$PWD/target/wasm32-wasip1/debug/fixture-plugin-for-tests.wasm" \
+  cargo test --locked -p zellij-integration-tests --test copy_mode_plugin_api
+```
+
+Narrow CI likewise supplies a freshly built fixture through `ZELLIJ_COPY_MODE_FIXTURE_WASM`. The checks observe native OSC 52 emission, not host clipboard acceptance.
