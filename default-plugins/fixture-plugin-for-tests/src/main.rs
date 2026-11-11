@@ -1,3 +1,5 @@
+#[cfg(target_family = "wasm")]
+mod copy_mode_fixture;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[allow(unused_imports)]
@@ -14,6 +16,8 @@ use zellij_tile::prelude::*;
 #[derive(Default)]
 struct State {
     received_events: Vec<Event>,
+    #[cfg(target_family = "wasm")]
+    copy_control: Option<copy_mode_fixture::Control>,
     received_payload: Option<String>,
     configuration: BTreeMap<String, String>,
     message_to_plugin_payload: Option<String>,
@@ -353,7 +357,13 @@ impl ZellijPlugin for State {
             .get("live_view_fixture")
             .map(|v| v == "true")
             .unwrap_or(false);
-        if attention_fixture || live_view_fixture {
+        let copy_fixture = configuration
+            .get("copy_mode_fixture")
+            .is_some_and(|value| value == "true");
+        if copy_fixture {
+            permissions.push(PermissionType::InterceptInput);
+        }
+        if attention_fixture || live_view_fixture || copy_fixture {
             permissions.push(PermissionType::ReadPaneContents);
         }
         request_permission(&permissions);
@@ -1362,6 +1372,15 @@ impl ZellijPlugin for State {
                 ));
             },
             Event::CustomMessage(message, payload) => {
+                if message == "copy_mode_key" {
+                    if self
+                        .copy_control
+                        .as_ref()
+                        .is_some_and(|control| control.handle_key(&payload))
+                    {
+                        self.copy_control = None;
+                    }
+                }
                 if message == "pong" {
                     self.received_payload = Some(payload.clone());
                 }
@@ -1395,6 +1414,15 @@ impl ZellijPlugin for State {
             PipeSource::PromptRequest { request_id, .. } => format!("prompt_{}", request_id),
         };
         let name = pipe_message.name;
+        if name == "copy_mode_control" {
+            let column = self
+                .configuration
+                .get("copy_column")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(9);
+            self.copy_control = copy_mode_fixture::Control::begin(column);
+            return false;
+        }
         let payload = pipe_message.payload;
         if name.starts_with("live_view_") {
             if let PipeSource::Cli(pipe_id) = &pipe_message.source {

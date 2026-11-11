@@ -3122,11 +3122,30 @@ pub(crate) fn route_thread_main(
                                         s.session_configuration
                                             .get_client_default_input_mode(&client_id),
                                         key_actions,
+                                        if *im == InputMode::Copy && !has_focused_popup && !live_view_capture && !in_key_passthrough {
+                                            match kb.default_action_for_mode(im, Some(&key), vec![], dim, is_kitty_keyboard_protocol) {
+                                                Action::CopyModeInput { key } => Some(key),
+                                                _ => None,
+                                            }
+                                        } else { None },
                                     ))
                                 });
-                            if let Some((senders, default_shell, client_input_mode, key_actions)) =
+                            if let Some((senders, default_shell, client_input_mode, key_actions, copy_key)) =
                                 dispatch_inputs
                             {
+                                if let Some(key) = copy_key {
+                                    let (response, receiver) = crossbeam::channel::bounded(1);
+                                    let _ = senders.send_to_screen(ScreenInstruction::CaptureCopyKey { key, client_id, response });
+                                    // rationale(input): Resolve modal ownership before keybinding dispatch, including the activation key itself.
+                                    match receiver.recv_timeout(ACTION_COMPLETION_TIMEOUT) {
+                                        Ok(true) => return Ok(should_break),
+                                        Ok(false) => {},
+                                        Err(error) => {
+                                            log::error!("Copy key ownership unresolved: {error}");
+                                            return Ok(should_break);
+                                        },
+                                    }
+                                }
                                 for key_action in key_actions {
                                     let action = match key_action {
                                         PopupKeyAction::Route(action) => action,
