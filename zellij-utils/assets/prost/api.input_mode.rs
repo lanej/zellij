@@ -39,6 +39,7 @@ pub enum InputMode {
     /// / `Tmux` mode allows for basic tmux keybindings functionality
     Tmux = 13,
     RenameSession = 14,
+    Copy = 15,
 }
 impl InputMode {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -62,6 +63,7 @@ impl InputMode {
             InputMode::Prompt => "Prompt",
             InputMode::Tmux => "Tmux",
             InputMode::RenameSession => "RenameSession",
+            InputMode::Copy => "Copy",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -82,6 +84,7 @@ impl InputMode {
             "Prompt" => Some(Self::Prompt),
             "Tmux" => Some(Self::Tmux),
             "RenameSession" => Some(Self::RenameSession),
+            "Copy" => Some(Self::Copy),
             _ => None,
         }
     }

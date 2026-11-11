@@ -359,6 +359,7 @@ message Action {
     PasteFromClipboardByPaneIdAction paste_from_clipboard_by_pane_id = 193;
     ToggleStackListOrientationAction toggle_stack_list_orientation = 194;
     ToggleStackListOrientationByPaneIdAction toggle_stack_list_orientation_by_pane_id = 195;
+    CopyModeInputAction copy_mode_input = 196;
   }
 }
 
@@ -386,6 +387,7 @@ message ScrollToBottomAction {}
 message ScrollToTopAction {}
 message ScrollToPreviousPromptAction {}
 message ScrollToNextPromptAction {}
+message CopyModeInputAction { string key = 1; }
 message SelectCommandAtScrollPositionAction {}
 message CopyLastCommandOutputAction {}
 message PageScrollUpAction {}
@@ -888,6 +890,7 @@ enum InputMode {
   INPUT_MODE_PROMPT = 13;
   INPUT_MODE_TMUX = 14;
   INPUT_MODE_RENAME_SESSION = 15;
+  INPUT_MODE_COPY = 16;
 }
 
 enum Direction {

@@ -2662,6 +2662,16 @@ Config {
                 HalfPageScrollUp,
             ],
             KeyWithModifier {
+                bare_key: Char(
+                    'v',
+                ),
+                key_modifiers: {},
+            }: [
+                SwitchToMode {
+                    input_mode: Copy,
+                },
+            ],
+            KeyWithModifier {
                 bare_key: Esc,
                 key_modifiers: {},
             }: [
@@ -6619,6 +6629,390 @@ Config {
                 UndoRenameSession,
                 SwitchToMode {
                     input_mode: Session,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Enter,
+                key_modifiers: {},
+            }: [
+                SwitchToMode {
+                    input_mode: Normal,
+                },
+            ],
+        },
+        Copy: {
+            KeyWithModifier {
+                bare_key: Left,
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                MoveFocusOrTab {
+                    direction: Left,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Down,
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                MoveFocus {
+                    direction: Down,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Up,
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                MoveFocus {
+                    direction: Up,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Right,
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                MoveFocusOrTab {
+                    direction: Right,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: F(
+                    9,
+                ),
+                key_modifiers: {},
+            }: [
+                ToggleSessionCard,
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    '+',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                Resize {
+                    resize: Increase,
+                    direction: None,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    '-',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                Resize {
+                    resize: Decrease,
+                    direction: None,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    '=',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                Resize {
+                    resize: Increase,
+                    direction: None,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    '[',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                PreviousSwapLayout,
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    ']',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                NextSwapLayout,
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'b',
+                ),
+                key_modifiers: {
+                    Ctrl,
+                },
+            }: [
+                CopyModeInput {
+                    key: "Ctrl b",
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'd',
+                ),
+                key_modifiers: {
+                    Ctrl,
+                },
+            }: [
+                CopyModeInput {
+                    key: "Ctrl d",
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'f',
+                ),
+                key_modifiers: {
+                    Ctrl,
+                },
+            }: [
+                CopyModeInput {
+                    key: "Ctrl f",
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'f',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                ToggleFloatingPanes,
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'g',
+                ),
+                key_modifiers: {
+                    Ctrl,
+                },
+            }: [
+                SwitchToMode {
+                    input_mode: Locked,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'h',
+                ),
+                key_modifiers: {
+                    Ctrl,
+                },
+            }: [
+                SwitchToMode {
+                    input_mode: Move,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'h',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                MoveFocusOrTab {
+                    direction: Left,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'i',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                MoveTab {
+                    direction: Left,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'j',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                MoveFocus {
+                    direction: Down,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'k',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                MoveFocus {
+                    direction: Up,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'l',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                MoveFocusOrTab {
+                    direction: Right,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'n',
+                ),
+                key_modifiers: {
+                    Ctrl,
+                },
+            }: [
+                SwitchToMode {
+                    input_mode: Resize,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'n',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                NewPane {
+                    direction: None,
+                    pane_name: None,
+                    start_suppressed: false,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'o',
+                ),
+                key_modifiers: {
+                    Ctrl,
+                },
+            }: [
+                SwitchToMode {
+                    input_mode: Session,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'o',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                MoveTab {
+                    direction: Right,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'p',
+                ),
+                key_modifiers: {
+                    Ctrl,
+                },
+            }: [
+                SwitchToMode {
+                    input_mode: Pane,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'p',
+                ),
+                key_modifiers: {
+                    Alt,
+                },
+            }: [
+                TogglePaneInGroup,
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'p',
+                ),
+                key_modifiers: {
+                    Alt,
+                    Shift,
+                },
+            }: [
+                ToggleGroupMarking,
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'q',
+                ),
+                key_modifiers: {
+                    Ctrl,
+                },
+            }: [
+                Quit,
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    's',
+                ),
+                key_modifiers: {
+                    Ctrl,
+                },
+            }: [
+                SwitchToMode {
+                    input_mode: Scroll,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    't',
+                ),
+                key_modifiers: {
+                    Ctrl,
+                },
+            }: [
+                SwitchToMode {
+                    input_mode: Tab,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'u',
+                ),
+                key_modifiers: {
+                    Ctrl,
+                },
+            }: [
+                CopyModeInput {
+                    key: "Ctrl u",
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Esc,
+                key_modifiers: {},
+            }: [
+                CopyModeInput {
+                    key: "ESC",
                 },
             ],
             KeyWithModifier {
@@ -13402,6 +13796,311 @@ Config {
             },
         },
         RenameSession: {
+            MouseTrigger {
+                button: Left,
+                modifiers: {},
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    Click,
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: Left,
+                modifiers: {},
+                click_count: 2,
+                target: Content,
+            }: MouseBinding {
+                kind: Behaviour(
+                    Select,
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: Left,
+                modifiers: {},
+                click_count: 2,
+                target: Frame,
+            }: MouseBinding {
+                kind: Behaviour(
+                    ToggleFullscreen,
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: Left,
+                modifiers: {},
+                click_count: 3,
+                target: Content,
+            }: MouseBinding {
+                kind: Behaviour(
+                    Select,
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: Left,
+                modifiers: {
+                    Ctrl,
+                },
+                click_count: 1,
+                target: Content,
+            }: MouseBinding {
+                kind: Behaviour(
+                    DrawFloatingPane(
+                        None,
+                    ),
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: Left,
+                modifiers: {
+                    Ctrl,
+                },
+                click_count: 1,
+                target: Frame,
+            }: MouseBinding {
+                kind: Behaviour(
+                    ResizePane,
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: Left,
+                modifiers: {
+                    Alt,
+                },
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    GroupToggle,
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: Right,
+                modifiers: {},
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    ContextMenu,
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: Right,
+                modifiers: {
+                    Ctrl,
+                },
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    ContextMenu,
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: Right,
+                modifiers: {
+                    Alt,
+                },
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    Ungroup,
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: Middle,
+                modifiers: {
+                    Alt,
+                },
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    Ignore,
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: ScrollUp,
+                modifiers: {},
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    Scroll(
+                        3,
+                    ),
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: ScrollUp,
+                modifiers: {
+                    Ctrl,
+                },
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    ResizeScroll(
+                        Increase,
+                    ),
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: ScrollUp,
+                modifiers: {
+                    Alt,
+                },
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    ScrollToPrompt(
+                        Previous,
+                    ),
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: ScrollDown,
+                modifiers: {},
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    Scroll(
+                        3,
+                    ),
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: ScrollDown,
+                modifiers: {
+                    Ctrl,
+                },
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    ResizeScroll(
+                        Decrease,
+                    ),
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: ScrollDown,
+                modifiers: {
+                    Alt,
+                },
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    ScrollToPrompt(
+                        Next,
+                    ),
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: ScrollLeft,
+                modifiers: {},
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    ScrollColumns(
+                        4,
+                    ),
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: ScrollLeft,
+                modifiers: {
+                    Ctrl,
+                },
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    ScrollColumns(
+                        4,
+                    ),
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: ScrollLeft,
+                modifiers: {
+                    Alt,
+                },
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    Ignore,
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: ScrollRight,
+                modifiers: {},
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    ScrollColumns(
+                        4,
+                    ),
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: ScrollRight,
+                modifiers: {
+                    Ctrl,
+                },
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    ScrollColumns(
+                        4,
+                    ),
+                ),
+                app_first: None,
+            },
+            MouseTrigger {
+                button: ScrollRight,
+                modifiers: {
+                    Alt,
+                },
+                click_count: 1,
+                target: Any,
+            }: MouseBinding {
+                kind: Behaviour(
+                    Ignore,
+                ),
+                app_first: None,
+            },
+        },
+        Copy: {
             MouseTrigger {
                 button: Left,
                 modifiers: {},

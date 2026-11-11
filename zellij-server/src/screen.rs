@@ -481,6 +481,7 @@ pub enum ScreenInstruction {
     ScrollToTop(ClientId, Option<NotificationEnd>),
     ScrollToPreviousPrompt(ClientId, Option<NotificationEnd>),
     ScrollToNextPrompt(ClientId, Option<NotificationEnd>),
+    CopyModeInput(String, ClientId, Option<NotificationEnd>),
     SelectCommandAtScrollPosition(ClientId, Option<NotificationEnd>),
     CopyLastCommandOutput(ClientId, Option<NotificationEnd>),
     ClearCommandOutputFlash(PaneId),
@@ -1334,6 +1335,7 @@ impl From<&ScreenInstruction> for ScreenContext {
             ScreenInstruction::ScrollToTop(..) => ScreenContext::ScrollToTop,
             ScreenInstruction::ScrollToPreviousPrompt(..) => ScreenContext::ScrollToPreviousPrompt,
             ScreenInstruction::ScrollToNextPrompt(..) => ScreenContext::ScrollToNextPrompt,
+            ScreenInstruction::CopyModeInput(..) => ScreenContext::CopyModeInput,
             ScreenInstruction::SelectCommandAtScrollPosition(..) => {
                 ScreenContext::SelectCommandAtScrollPosition
             },
@@ -6959,6 +6961,9 @@ impl Screen {
             self.recently_disconnected_clients.push_back(client_id);
         }
 
+        for tab in self.tabs.values_mut() {
+            tab.end_copy_mode(client_id)?;
+        }
         self.set_client_dimmed(client_id, false, None);
         self.close_popup_for_client(client_id);
         self.rename_pane_targets.remove(&client_id);
@@ -8141,6 +8146,27 @@ impl Screen {
             .cloned()
             .unwrap_or_else(|| self.default_mode_info.clone());
         let previous_mode = mode_info.mode;
+        if previous_mode == InputMode::Copy && new_mode != InputMode::Copy {
+            for tab in self.tabs.values_mut() {
+                tab.end_copy_mode(client_id)?;
+            }
+        }
+        if new_mode == InputMode::Copy && previous_mode != InputMode::Copy {
+            let started = self
+                .get_active_tab_mut(client_id)
+                .map(|tab| tab.start_copy_mode(client_id))
+                .unwrap_or(false);
+            if !started {
+                self.bus
+                    .senders
+                    .send_to_server(ServerInstruction::ChangeMode(
+                        client_id,
+                        previous_mode,
+                        None,
+                    ))?;
+                return Ok(());
+            }
+        }
         mode_info.mode = new_mode;
         mode_info.base_mode = base_mode;
         let pending_session_rename = if new_mode == InputMode::RenameSession {
@@ -12211,6 +12237,34 @@ pub(crate) fn screen_thread_main(
                     |tab: &mut Tab, client_id: ClientId| tab
                         .scroll_active_terminal_to_next_prompt(client_id)
                 );
+                screen.render(None)?;
+            },
+            ScreenInstruction::CopyModeInput(key, client_id, _completion_tx) => {
+                let in_copy_mode = screen
+                    .mode_info
+                    .get(&client_id)
+                    .is_some_and(|mode| mode.mode == InputMode::Copy);
+                if in_copy_mode {
+                    let should_exit = screen
+                        .get_active_tab_mut(client_id)?
+                        .copy_mode_input(&key, client_id)?;
+                    if should_exit {
+                        let mode = screen
+                            .mode_info
+                            .get(&client_id)
+                            .and_then(|mode| mode.base_mode)
+                            .unwrap_or(screen.default_mode_info.mode);
+                        let mode = if mode == InputMode::Copy {
+                            InputMode::Normal
+                        } else {
+                            mode
+                        };
+                        screen
+                            .bus
+                            .senders
+                            .send_to_server(ServerInstruction::ChangeMode(client_id, mode, None))?;
+                    }
+                }
                 screen.render(None)?;
             },
             ScreenInstruction::SelectCommandAtScrollPosition(client_id, _completion_tx) => {
