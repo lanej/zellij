@@ -2,7 +2,7 @@
 
 Enter `Copy` mode to move a cursor over the current pane's scrollback, select text, and copy it through Zellij's configured clipboard. The pane stays in place; no editor, plugin viewer, or mouse is involved. Ordinary scroll mode and `EditScrollback` remain available.
 
-From the standard keybindings, enter scroll mode and press `v`. Alternatively bind `SwitchToMode "Copy"` directly to the shortcut you use for scrollback. With a custom keymap, give copy mode its own Escape binding so a shared Escape binding does not bypass selection cancellation:
+This capability adds no default shortcut or preset keymap. External plugins and user configuration decide how to expose it. To enter through a custom keymap, bind `SwitchToMode "Copy"` explicitly and give copy mode its own Escape binding so an inherited shared binding does not bypass selection cancellation:
 
 ```kdl
 keybinds {

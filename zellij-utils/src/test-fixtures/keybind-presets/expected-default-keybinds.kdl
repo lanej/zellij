@@ -80,15 +80,7 @@ keybinds {
         bind "Shift Space" { PreviousSwapLayout; }
         bind "u" { MuteTab; SwitchToMode "Normal"; }
     }
-    copy {
-        bind "Esc" { CopyModeInput "ESC"; }
-        bind "Ctrl b" { CopyModeInput "Ctrl b"; }
-        bind "Ctrl f" { CopyModeInput "Ctrl f"; }
-        bind "Ctrl u" { CopyModeInput "Ctrl u"; }
-        bind "Ctrl d" { CopyModeInput "Ctrl d"; }
-    }
     scroll {
-        bind "v" { SwitchToMode "Copy"; }
         bind "Ctrl s" { SwitchToMode "Normal"; }
         bind "e" { EditScrollback; SwitchToMode "Normal"; }
         bind "s" { SwitchToMode "EnterSearch"; SearchInput 0; }

@@ -239,34 +239,34 @@ mod keyboard_copy_tests {
     }
 
     #[test]
-    fn keyboard_copy_presets_keep_page_up_and_selection_escape() {
-        for preset in [
-            include_str!("../../assets/keybinds/default.kdl"),
-            include_str!("../../assets/keybinds/unlock-first.kdl"),
-        ] {
-            let preset = preset
-                .replace("{primary}", "Ctrl")
-                .replace("{secondary}", "Alt")
-                .replace("{unlock}", "Ctrl g");
-            let config = Config::from_kdl(&preset, None).expect("parse shipped keymap");
-            for (key, expected) in [("Ctrl b", "Ctrl b"), ("Esc", "ESC")] {
-                let key = KeyWithModifier::from_str(key).unwrap();
-                let actions = config
-                    .keybinds
-                    .get_actions_for_key_in_mode_or_default_action(
-                        &InputMode::Copy,
-                        &key,
-                        vec![],
-                        InputMode::Normal,
-                        false,
-                    );
-                assert_eq!(
-                    actions,
-                    vec![Action::CopyModeInput {
-                        key: expected.to_owned()
-                    }]
+    fn keyboard_copy_accepts_an_explicit_user_keymap() {
+        let config = Config::from_kdl(
+            r#"keybinds clear-defaults=true {
+                copy {
+                    bind "Esc" { CopyModeInput "ESC"; }
+                    bind "Ctrl b" { CopyModeInput "Ctrl b"; }
+                }
+            }"#,
+            None,
+        )
+        .expect("parse user keymap");
+        for (key, expected) in [("Ctrl b", "Ctrl b"), ("Esc", "ESC")] {
+            let key = KeyWithModifier::from_str(key).unwrap();
+            let actions = config
+                .keybinds
+                .get_actions_for_key_in_mode_or_default_action(
+                    &InputMode::Copy,
+                    &key,
+                    vec![],
+                    InputMode::Normal,
+                    false,
                 );
-            }
+            assert_eq!(
+                actions,
+                vec![Action::CopyModeInput {
+                    key: expected.to_owned()
+                }]
+            );
         }
     }
 }
