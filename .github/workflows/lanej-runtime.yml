@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-15-intel]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     defaults:
@@ -24,13 +24,18 @@ jobs:
         shell: bash
     env:
       CARGO_BUILD_JOBS: '2'
+      ZELLIJ_COPY_MODE_FIXTURE_WASM: ${{ github.workspace }}/target/wasm32-wasip1/release/fixture-plugin-for-tests.wasm
       CARGO_PROFILE_RELEASE_LTO: 'false'
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
     steps:
       - uses: actions/checkout@v4
       - name: Install native build tools on Linux
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential cmake pkg-config libssl-dev
+        run: |
+          if ! command -v cc || ! command -v cmake || ! command -v pkg-config || ! pkg-config --exists openssl; then
+            sudo apt-get update --error-on=any -o Acquire::Retries=3
+            sudo apt-get install -y -o Acquire::Retries=3 build-essential cmake pkg-config libssl-dev
+          fi
       - name: Install native build tools on macOS
         if: runner.os == 'macOS'
         run: brew install cmake pkg-config openssl@3
@@ -45,11 +50,10 @@ jobs:
             target
           key: lanej-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
           restore-keys: lanej-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
-      - name: Build copy-mode Hop plugin
+      - name: Build native copy API test fixture
         run: |
           rustup target add --toolchain 1.95.0 wasm32-wasip1
-          rustup run 1.95.0 cargo build --locked --release -p copy-hop --target wasm32-wasip1
-          cp target/wasm32-wasip1/release/copy-hop.wasm zellij-utils/assets/plugins/copy-hop.wasm
+          rustup run 1.95.0 cargo build --locked --release -p fixture-plugin-for-tests --target wasm32-wasip1
       - name: Verify native reliability fixes
         run: |
           host=$(rustup run 1.95.0 rustc -vV | sed -n 's/^host: //p')
@@ -75,7 +79,7 @@ jobs:
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
             --target "$host" keyboard_copy
           rustup run 1.95.0 cargo test --locked --release \
-            -p zellij-integration-tests --test keyboard_copy --test copy_hop --no-default-features \
+            -p zellij-integration-tests --test keyboard_copy --test copy_mode_plugin_api --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
             --target "$host"
           rustup run 1.95.0 cargo test --locked --release \
