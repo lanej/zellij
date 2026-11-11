@@ -16,7 +16,9 @@ fn connect_output_client(
     let listener = zellij_utils::consts::ipc_bind(&path).unwrap();
     let client = zellij_utils::consts::ipc_connect(&path).unwrap();
     let stream = listener.accept().unwrap();
-    server.register_client_with_reply(client_id, stream).unwrap();
+    server
+        .register_client_with_reply(client_id, stream)
+        .unwrap();
     IpcReceiverWithContext::new(client)
 }
 
