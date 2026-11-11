@@ -482,6 +482,19 @@ pub enum ScreenInstruction {
     ScrollToPreviousPrompt(ClientId, Option<NotificationEnd>),
     ScrollToNextPrompt(ClientId, Option<NotificationEnd>),
     CopyModeInput(String, ClientId, Option<NotificationEnd>),
+    CaptureCopyKey {
+        key: String,
+        client_id: ClientId,
+        response: crossbeam::channel::Sender<bool>,
+    },
+    CopyModePlugin {
+        request: zellij_utils::plugin_api::generated_api::api::copy_mode::Request,
+        client_id: ClientId,
+        plugin_id: PluginId,
+        response: crossbeam::channel::Sender<
+            zellij_utils::plugin_api::generated_api::api::copy_mode::Response,
+        >,
+    },
     SelectCommandAtScrollPosition(ClientId, Option<NotificationEnd>),
     CopyLastCommandOutput(ClientId, Option<NotificationEnd>),
     ClearCommandOutputFlash(PaneId),
@@ -978,7 +991,7 @@ pub enum ScreenInstruction {
     SetMouseSelectionSupport(PaneId, bool),
     SetPaneCollapsed(PaneId, bool),
     InterceptKeyPresses(PluginId, ClientId),
-    ClearKeyPressesIntercepts(ClientId),
+    ClearKeyPressesIntercepts(ClientId, PluginId),
     TogglePaneIdInGroup(PaneId, ClientId, Option<NotificationEnd>),
     StartRenamePaneWithPaneId(PaneId, ClientId),
     StartRenameTabWithTabId(usize, ClientId),
@@ -1335,6 +1348,8 @@ impl From<&ScreenInstruction> for ScreenContext {
             ScreenInstruction::ScrollToTop(..) => ScreenContext::ScrollToTop,
             ScreenInstruction::ScrollToPreviousPrompt(..) => ScreenContext::ScrollToPreviousPrompt,
             ScreenInstruction::ScrollToNextPrompt(..) => ScreenContext::ScrollToNextPrompt,
+            ScreenInstruction::CopyModePlugin { .. } => ScreenContext::CopyModeInput,
+            ScreenInstruction::CaptureCopyKey { .. } => ScreenContext::CopyModeInput,
             ScreenInstruction::CopyModeInput(..) => ScreenContext::CopyModeInput,
             ScreenInstruction::SelectCommandAtScrollPosition(..) => {
                 ScreenContext::SelectCommandAtScrollPosition
@@ -2034,6 +2049,13 @@ fn format_guest_modal_shortcut(keys: &[KeyWithModifier]) -> Vec<String> {
     keys.iter().map(|key| key.to_string()).collect()
 }
 
+struct CopyKeyCapture {
+    plugin_id: PluginId,
+    session_id: u64,
+    in_flight: bool,
+    keys: std::collections::VecDeque<String>,
+}
+
 /// A [`Screen`] holds multiple [`Tab`]s, each one holding multiple [`panes`](crate::client::panes).
 /// It only directly controls which tab is active, delegating the rest to the individual `Tab`.
 struct RowShiftsWhileRendering;
@@ -2058,6 +2080,8 @@ pub(crate) struct Screen {
     max_panes: Option<usize>,
     /// A map between this [`Screen`]'s tabs and their ID/key.
     tabs: BTreeMap<usize, Tab>,
+    keybind_intercepts: HashMap<ClientId, PluginId>,
+    copy_key_captures: HashMap<ClientId, CopyKeyCapture>,
     last_single_pane_tab_names: HashMap<usize, Option<String>>,
     pixel_dimensions: PixelDimensions,
     character_cell_size: Rc<RefCell<Option<SizeInPixels>>>,
@@ -2459,6 +2483,8 @@ impl Screen {
             client_sizes: HashMap::new(),
             global_last_active_tab_id: 0,
             tabs: BTreeMap::new(),
+            keybind_intercepts: HashMap::new(),
+            copy_key_captures: HashMap::new(),
             last_single_pane_tab_names: HashMap::new(),
             terminal_emulator_colors: Rc::new(RefCell::new(Palette::default())),
             terminal_emulator_color_codes: Rc::new(RefCell::new(HashMap::new())),
@@ -2602,6 +2628,124 @@ impl Screen {
             remote_actions: crate::session_link::RemoteActions::default(),
             pending_session_card_away_since: HashMap::new(),
         }
+    }
+
+    fn finish_copy_mode(&mut self, client_id: ClientId) -> Result<()> {
+        if let Some(capture) = self.copy_key_captures.remove(&client_id) {
+            if self.keybind_intercepts.get(&client_id) == Some(&capture.plugin_id) {
+                self.keybind_intercepts.remove(&client_id);
+            }
+        }
+        for tab in self.tabs.values_mut() {
+            tab.end_copy_mode(client_id)?;
+        }
+        let mode = self
+            .mode_info
+            .get(&client_id)
+            .and_then(|mode| mode.base_mode)
+            .unwrap_or(self.default_mode_info.mode);
+        let mode = if mode == InputMode::Copy {
+            InputMode::Normal
+        } else {
+            mode
+        };
+        self.bus
+            .senders
+            .send_to_server(ServerInstruction::ChangeMode(client_id, mode, None))?;
+        Ok(())
+    }
+
+    fn send_copy_key(&self, plugin_id: PluginId, client_id: ClientId, token: u64, key: String) {
+        let _ = self
+            .bus
+            .senders
+            .send_to_plugin(PluginInstruction::Update(vec![(
+                Some(plugin_id),
+                Some(client_id),
+                Event::CustomMessage("copy_mode_key".into(), format!("{token}:{key}")),
+            )]));
+    }
+
+    fn capture_copy_key(&mut self, client_id: ClientId, key: &str) -> Result<bool> {
+        let token = self
+            .get_active_tab_mut(client_id)
+            .ok()
+            .and_then(|tab| tab.copy_mode_session_id(client_id));
+        let Some(capture) = self.copy_key_captures.get_mut(&client_id) else {
+            return Ok(false);
+        };
+        if token != Some(capture.session_id) {
+            let plugin_id = capture.plugin_id;
+            self.copy_key_captures.remove(&client_id);
+            if self.keybind_intercepts.get(&client_id) == Some(&plugin_id) {
+                self.keybind_intercepts.remove(&client_id);
+            }
+            return Ok(false);
+        }
+        if capture.in_flight {
+            if capture.keys.len() >= 1024 {
+                // warning(input): A stalled plugin must not retain an unbounded keyboard queue.
+                self.finish_copy_mode(client_id)?;
+            } else {
+                capture.keys.push_back(key.into());
+            }
+        } else {
+            capture.in_flight = true;
+            let (plugin_id, token) = (capture.plugin_id, capture.session_id);
+            self.send_copy_key(plugin_id, client_id, token, key.into());
+        }
+        Ok(true)
+    }
+
+    fn acknowledge_copy_key(&mut self, client_id: ClientId, plugin_id: PluginId, token: u64) {
+        let capture = self
+            .copy_key_captures
+            .entry(client_id)
+            .or_insert_with(|| CopyKeyCapture {
+                plugin_id,
+                session_id: token,
+                in_flight: false,
+                keys: Default::default(),
+            });
+        if capture.plugin_id != plugin_id || capture.session_id != token {
+            return;
+        }
+        if let Some(key) = capture.keys.pop_front() {
+            capture.in_flight = true;
+            self.send_copy_key(plugin_id, client_id, token, key);
+        } else {
+            capture.in_flight = false;
+        }
+    }
+
+    fn release_copy_keys(&mut self, client_id: ClientId, plugin_id: PluginId) -> Result<()> {
+        if self.keybind_intercepts.get(&client_id) == Some(&plugin_id) {
+            self.keybind_intercepts.remove(&client_id);
+        }
+        let Some(capture) = self.copy_key_captures.remove(&client_id) else {
+            return Ok(());
+        };
+        if capture.plugin_id != plugin_id {
+            self.copy_key_captures.insert(client_id, capture);
+            return Ok(());
+        }
+        if self
+            .get_active_tab_mut(client_id)
+            .ok()
+            .and_then(|tab| tab.copy_mode_session_id(client_id))
+            == Some(capture.session_id)
+        {
+            for key in capture.keys {
+                if self
+                    .get_active_tab_mut(client_id)?
+                    .copy_mode_input(&key, client_id)?
+                {
+                    self.finish_copy_mode(client_id)?;
+                    break;
+                }
+            }
+        }
+        Ok(())
     }
 
     fn client_location(&self, client_id: ClientId) -> Option<String> {
@@ -6953,6 +7097,8 @@ impl Screen {
     }
 
     pub fn remove_client(&mut self, client_id: ClientId) -> Result<()> {
+        self.copy_key_captures.remove(&client_id);
+        self.keybind_intercepts.remove(&client_id);
         let err_context = || format!("failed to remove client {client_id}");
         if !self.recently_disconnected_clients.contains(&client_id) {
             if self.recently_disconnected_clients.len() >= RECENTLY_DISCONNECTED_CLIENTS_LIMIT {
@@ -8147,6 +8293,11 @@ impl Screen {
             .unwrap_or_else(|| self.default_mode_info.clone());
         let previous_mode = mode_info.mode;
         if previous_mode == InputMode::Copy && new_mode != InputMode::Copy {
+            if let Some(capture) = self.copy_key_captures.remove(&client_id) {
+                if self.keybind_intercepts.get(&client_id) == Some(&capture.plugin_id) {
+                    self.keybind_intercepts.remove(&client_id);
+                }
+            }
             for tab in self.tabs.values_mut() {
                 tab.end_copy_mode(client_id)?;
             }
@@ -11072,7 +11223,6 @@ pub(crate) fn screen_thread_main(
     let mut pending_events_waiting_for_pane: HashMap<PaneId, Vec<ScreenInstruction>> =
         HashMap::new();
     let mut plugin_loading_message_cache = HashMap::new();
-    let mut keybind_intercepts = HashMap::new();
     loop {
         let (event, mut err_ctx) = screen
             .bus
@@ -11493,7 +11643,7 @@ pub(crate) fn screen_thread_main(
                                 // waiting for it
             ) => {
                 screen.record_client_input(client_id);
-                if let Some(plugin_id) = keybind_intercepts.get(&client_id) {
+                if let Some(plugin_id) = screen.keybind_intercepts.get(&client_id) {
                     if let Some(key_with_modifier) = key_with_modifier {
                         let _ = screen
                             .bus
@@ -12239,30 +12389,69 @@ pub(crate) fn screen_thread_main(
                 );
                 screen.render(None)?;
             },
+            ScreenInstruction::CopyModePlugin {
+                request,
+                client_id,
+                plugin_id,
+                response,
+            } => {
+                use zellij_utils::plugin_api::generated_api::api::copy_mode::{
+                    request::Operation, Response,
+                };
+                let (release_keys, acknowledge) = match &request.operation {
+                    Some(Operation::SetLabels(labels)) => (false, Some(labels.session_id)),
+                    Some(Operation::MoveCursor(_) | Operation::ClearLabels(_)) => (true, None),
+                    _ => (false, None),
+                };
+                let result = screen
+                    .get_active_tab_mut(client_id)
+                    .map_err(|e| e.to_string())
+                    .and_then(|tab| tab.copy_mode_plugin(request, client_id, plugin_id));
+                if result.is_ok() {
+                    if release_keys {
+                        screen.release_copy_keys(client_id, plugin_id)?;
+                    }
+                    if let Some(token) = acknowledge {
+                        if screen.keybind_intercepts.get(&client_id) == Some(&plugin_id) {
+                            screen.acknowledge_copy_key(client_id, plugin_id, token);
+                        }
+                    }
+                }
+                let reply = match result {
+                    Ok(snapshot) => Response {
+                        snapshot,
+                        error: None,
+                    },
+                    Err(error) => Response {
+                        snapshot: None,
+                        error: Some(error),
+                    },
+                };
+                let _ = response.send(reply);
+                screen.render(None)?;
+            },
+            ScreenInstruction::CaptureCopyKey {
+                key,
+                client_id,
+                response,
+            } => {
+                let captured = screen.capture_copy_key(client_id, &key)?;
+                let _ = response.send(captured);
+            },
             ScreenInstruction::CopyModeInput(key, client_id, _completion_tx) => {
                 let in_copy_mode = screen
                     .mode_info
                     .get(&client_id)
                     .is_some_and(|mode| mode.mode == InputMode::Copy);
                 if in_copy_mode {
+                    if screen.capture_copy_key(client_id, &key)? {
+                        continue;
+                    }
                     let should_exit = screen
                         .get_active_tab_mut(client_id)?
                         .copy_mode_input(&key, client_id)?;
                     if should_exit {
-                        let mode = screen
-                            .mode_info
-                            .get(&client_id)
-                            .and_then(|mode| mode.base_mode)
-                            .unwrap_or(screen.default_mode_info.mode);
-                        let mode = if mode == InputMode::Copy {
-                            InputMode::Normal
-                        } else {
-                            mode
-                        };
-                        screen
-                            .bus
-                            .senders
-                            .send_to_server(ServerInstruction::ChangeMode(client_id, mode, None))?;
+                        screen.finish_copy_mode(client_id)?;
                     }
                 }
                 screen.render(None)?;
@@ -15472,7 +15661,18 @@ pub(crate) fn screen_thread_main(
                 let _ = screen.log_and_report_session_state();
             },
             ScreenInstruction::InterceptKeyPresses(plugin_id, client_id) => {
-                keybind_intercepts.insert(client_id, plugin_id);
+                if let Some(previous) = screen
+                    .keybind_intercepts
+                    .get(&client_id)
+                    .copied()
+                    .filter(|previous| *previous != plugin_id)
+                {
+                    screen.release_copy_keys(client_id, previous)?;
+                    for tab in screen.tabs.values_mut() {
+                        tab.clear_copy_mode_labels(previous, client_id);
+                    }
+                }
+                screen.keybind_intercepts.insert(client_id, plugin_id);
             },
             ScreenInstruction::TogglePaneIdInGroup(pane_id, client_id, _completion_tx) => {
                 screen.toggle_pane_id_in_group(pane_id, &client_id);
@@ -15771,8 +15971,12 @@ pub(crate) fn screen_thread_main(
                 let actions = screen.context_menu_item_actions(plugin_id, client_id, index);
                 let _ = response_channel.send(actions);
             },
-            ScreenInstruction::ClearKeyPressesIntercepts(client_id) => {
-                keybind_intercepts.remove(&client_id);
+            ScreenInstruction::ClearKeyPressesIntercepts(client_id, plugin_id) => {
+                screen.release_copy_keys(client_id, plugin_id)?;
+                for tab in screen.tabs.values_mut() {
+                    tab.clear_copy_mode_labels(plugin_id, client_id);
+                }
+                screen.render(None)?;
             },
             ScreenInstruction::ReplacePaneWithExistingPane(
                 old_pane_id,
@@ -15838,6 +16042,13 @@ pub(crate) fn screen_thread_main(
                 screen.render(None)?;
             },
             ScreenInstruction::ClearAllPluginHighlights(plugin_id) => {
+                let clients: Vec<_> = screen.connected_clients.borrow().keys().copied().collect();
+                for client_id in clients {
+                    screen.release_copy_keys(client_id, plugin_id)?;
+                    for tab in screen.tabs.values_mut() {
+                        tab.clear_copy_mode_labels(plugin_id, client_id);
+                    }
+                }
                 let all_tabs = screen.get_tabs_mut();
                 for tab in all_tabs.values_mut() {
                     tab.clear_all_plugin_highlights(plugin_id);

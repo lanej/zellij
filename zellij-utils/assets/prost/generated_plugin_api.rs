@@ -6,6 +6,9 @@ pub mod api {
     pub mod command {
         include!("api.command.rs");
     }
+    pub mod copy_mode {
+        include!("api.copy_mode.rs");
+    }
     pub mod event {
         include!("api.event.rs");
     }
