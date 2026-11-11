@@ -103,6 +103,8 @@ checks = ["rustfmt", "independent-review", "nested-server-regressions"]
 preserved_fork_branch = "fix/nested-session-cycles"
 upstream_eligible = true
 fork_review_pr = 7
+fork_review_ci = "https://github.com/lanej/zellij/actions/runs/43071473932"
+fork_review_state = "ready-for-review"
 fork_review_head = "99efaa9ffc4c76dcfb3cdd4eafb9cfa045304266"
 scope_note = "Guard host input at authoritative registration; no unbounded retired-client set."
 
@@ -144,6 +146,8 @@ checks = ["rustfmt", "independent-review", "native-copy-and-protocol-tests", "na
 preserved_fork_branch = "codex/copy-mode-hop-plugin"
 upstream_eligible = true
 fork_review_pr = 9
+fork_review_ci = "https://github.com/lanej/zellij/actions/runs/43065320575"
+fork_review_state = "ready-for-review"
 fork_review_head = "996bbc31f4d3f39f20275ed419fd4a85c36e7a42"
 scope_note = "External-plugin API plus the existing literal-operation test fixture; no optional plugin implementation, installation, or keymaps."
 
