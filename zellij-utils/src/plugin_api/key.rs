@@ -14,7 +14,9 @@ impl TryFrom<ProtobufMainKey> for BareKey {
     type Error = &'static str;
     fn try_from(protobuf_main_key: ProtobufMainKey) -> Result<Self, &'static str> {
         match protobuf_main_key {
-            ProtobufMainKey::Char(character) => Ok(BareKey::Char(char_index_to_char(character))),
+            ProtobufMainKey::Char(character) => char::from_u32(character as u32)
+                .map(BareKey::Char)
+                .ok_or("Invalid Unicode scalar value"),
             ProtobufMainKey::Key(key_index) => {
                 let key = ProtobufNamedKey::try_from(key_index)
                     .ok()
@@ -144,10 +146,6 @@ fn fn_index_to_main_key(index: u8) -> Result<ProtobufMainKey, &'static str> {
     }
 }
 
-fn char_index_to_char(char_index: i32) -> char {
-    char_index as u8 as char
-}
-
 fn named_key_to_bare_key(named_key: ProtobufNamedKey) -> BareKey {
     match named_key {
         ProtobufNamedKey::PageDown => BareKey::PageDown,
@@ -182,5 +180,23 @@ fn named_key_to_bare_key(named_key: ProtobufNamedKey) -> BareKey {
         ProtobufNamedKey::Menu => BareKey::Menu,
         ProtobufNamedKey::NumLock => BareKey::NumLock,
         ProtobufNamedKey::Enter => BareKey::Enter,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dotfiles_unicode_keys_round_trip_through_the_plugin_protocol() {
+        for character in ['é', '界', '\u{301}', '👩', '\u{200d}', '💻'] {
+            let key = KeyWithModifier::new(BareKey::Char(character)).with_shift_modifier();
+            let encoded: ProtobufKey = key.clone().try_into().unwrap();
+            let decoded: KeyWithModifier = encoded.try_into().unwrap();
+            assert_eq!(decoded, key);
+        }
+        for invalid in [-1, 0xd800, 0x110000] {
+            assert!(BareKey::try_from(ProtobufMainKey::Char(invalid)).is_err());
+        }
     }
 }
