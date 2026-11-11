@@ -86,6 +86,11 @@ fn workspace_members() -> &'static Vec<WorkspaceMember> {
                 extra_artifacts: &[],
             },
             WorkspaceMember {
+                crate_name: "default-plugins/copy-hop",
+                build: true,
+                extra_artifacts: &[],
+            },
+            WorkspaceMember {
                 crate_name: "default-plugins/prompt",
                 build: true,
                 extra_artifacts: &[],

@@ -45,6 +45,11 @@ jobs:
             target
           key: lanej-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
           restore-keys: lanej-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
+      - name: Build copy-mode Hop plugin
+        run: |
+          rustup target add --toolchain 1.95.0 wasm32-wasip1
+          rustup run 1.95.0 cargo build --locked --release -p copy-hop --target wasm32-wasip1
+          cp target/wasm32-wasip1/release/copy-hop.wasm zellij-utils/assets/plugins/copy-hop.wasm
       - name: Verify native reliability fixes
         run: |
           host=$(rustup run 1.95.0 rustc -vV | sed -n 's/^host: //p')
@@ -70,6 +75,10 @@ jobs:
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
             --target "$host" keyboard_copy
           rustup run 1.95.0 cargo test --locked --release \
-            -p zellij-integration-tests --test keyboard_copy --no-default-features \
+            -p zellij-integration-tests --test keyboard_copy --test copy_hop --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
             --target "$host"
+          rustup run 1.95.0 cargo test --locked --release \
+            -p zellij-server --lib --no-default-features \
+            --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
+            --target "$host" copy_plugin
