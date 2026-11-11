@@ -4,3 +4,5 @@ target/
 .vim
 .idea
 .DS_Store
+
+/zellij-utils/assets/plugins/copy-hop.wasm
