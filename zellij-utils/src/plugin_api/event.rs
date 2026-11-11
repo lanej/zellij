@@ -2702,6 +2702,11 @@ impl TryFrom<ProtobufModeUpdatePayload> for ModeInfo {
                 .ok()
                 .ok_or("Malformed InputMode in the ModeUpdate Event")?
                 .try_into()?;
+        let current_mode = if protobuf_mode_update_payload.copy_mode_active {
+            InputMode::Copy
+        } else {
+            current_mode
+        };
         let base_mode: Option<InputMode> = protobuf_mode_update_payload
             .base_mode
             .and_then(|b_m| ProtobufInputMode::try_from(b_m).ok()?.try_into().ok());
@@ -2797,7 +2802,15 @@ impl TryFrom<ProtobufModeUpdatePayload> for ModeInfo {
 impl TryFrom<ModeInfo> for ProtobufModeUpdatePayload {
     type Error = &'static str;
     fn try_from(mode_info: ModeInfo) -> Result<Self, &'static str> {
-        let current_mode: ProtobufInputMode = mode_info.mode.try_into()?;
+        // workaround(plugins): Old tile SDKs reject unknown current modes. The additive
+        // flag preserves Copy for updated readers while existing plugins see Scroll.
+        let copy_mode_active = mode_info.mode == InputMode::Copy;
+        let current_mode: ProtobufInputMode = if copy_mode_active {
+            InputMode::Scroll
+        } else {
+            mode_info.mode
+        }
+        .try_into()?;
         let base_mode: Option<ProtobufInputMode> = mode_info
             .base_mode
             .and_then(|mode| ProtobufInputMode::try_from(mode).ok());
@@ -2836,6 +2849,7 @@ impl TryFrom<ModeInfo> for ProtobufModeUpdatePayload {
         let protobuf_input_mode_keybinds = keybinds_to_protobuf(mode_info.keybinds);
         Ok(ProtobufModeUpdatePayload {
             current_mode: current_mode as i32,
+            copy_mode_active,
             style: Some(style),
             keybinds: protobuf_input_mode_keybinds,
             arrow_fonts_support,
@@ -5571,5 +5585,23 @@ mod plugin_settings_entries_tests {
             EventType::try_from(protobuf).unwrap(),
             EventType::PluginSettingsEntries
         );
+    }
+}
+
+#[cfg(test)]
+mod keyboard_copy_compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn keyboard_copy_mode_updates_keep_a_legacy_scroll_projection() {
+        let info = ModeInfo {
+            mode: InputMode::Copy,
+            ..Default::default()
+        };
+        let encoded: ProtobufModeUpdatePayload = info.try_into().expect("encode mode info");
+        assert_eq!(encoded.current_mode, ProtobufInputMode::Scroll as i32);
+        assert!(encoded.copy_mode_active);
+        let decoded: ModeInfo = encoded.try_into().expect("decode mode info");
+        assert_eq!(decoded.mode, InputMode::Copy);
     }
 }

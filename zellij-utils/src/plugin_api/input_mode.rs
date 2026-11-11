@@ -24,6 +24,7 @@ impl TryFrom<ProtobufInputMode> for InputMode {
             ProtobufInputMode::Prompt => Ok(InputMode::Prompt),
             ProtobufInputMode::Tmux => Ok(InputMode::Tmux),
             ProtobufInputMode::RenameSession => Ok(InputMode::RenameSession),
+            ProtobufInputMode::Copy => Ok(InputMode::Copy),
         }
     }
 }
@@ -47,6 +48,7 @@ impl TryFrom<InputMode> for ProtobufInputMode {
             InputMode::Prompt => ProtobufInputMode::Prompt,
             InputMode::Tmux => ProtobufInputMode::Tmux,
             InputMode::RenameSession => ProtobufInputMode::RenameSession,
+            InputMode::Copy => ProtobufInputMode::Copy,
         })
     }
 }

@@ -1249,6 +1249,8 @@ pub struct ModeUpdatePayload {
     pub remote_client: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, repeated, tag="24")]
     pub hidden_bars: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(bool, tag="25")]
+    pub copy_mode_active: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

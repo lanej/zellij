@@ -521,6 +521,7 @@ impl Action {
     ) -> Result<Self, ConfigError> {
         match action_name {
             "WriteChars" => Ok(Action::WriteChars { chars: string }),
+            "CopyModeInput" => Ok(Action::CopyModeInput { key: string }),
             "ApplyTiledSwapLayout" => Ok(Action::ApplyTiledSwapLayout { name: string }),
             "ApplyFloatingSwapLayout" => Ok(Action::ApplyFloatingSwapLayout { name: string }),
             "SetPaneFrameStyle" => {
@@ -704,6 +705,11 @@ impl Action {
                 for byte in bytes {
                     node.push(KdlValue::Base10(*byte as i64));
                 }
+                Some(node)
+            },
+            Action::CopyModeInput { key } => {
+                let mut node = KdlNode::new("CopyModeInput");
+                node.push(key.clone());
                 Some(node)
             },
             Action::WriteChars { chars: string } => {
@@ -2058,6 +2064,11 @@ impl TryFrom<(&KdlNode, &Options)> for Action {
             "Confirm" => parse_kdl_action_arguments!(action_name, action_arguments, kdl_action),
             "Deny" => parse_kdl_action_arguments!(action_name, action_arguments, kdl_action),
             "Write" => parse_kdl_action_u8_arguments!(action_name, action_arguments, kdl_action),
+            "CopyModeInput" => parse_kdl_action_char_or_string_arguments!(
+                action_name,
+                action_arguments,
+                kdl_action
+            ),
             "WriteChars" => parse_kdl_action_char_or_string_arguments!(
                 action_name,
                 action_arguments,

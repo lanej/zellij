@@ -76,6 +76,20 @@ impl Keybinds {
         key_is_kitty_protocol: bool,
     ) -> Action {
         match *mode {
+            InputMode::Copy => Action::CopyModeInput {
+                key: key_with_modifier
+                    .map(|key| {
+                        if let BareKey::Char(c) = key.bare_key {
+                            if key.key_modifiers.len() == 1
+                                && key.key_modifiers.contains(&crate::data::KeyModifier::Shift)
+                            {
+                                return c.to_uppercase().collect();
+                            }
+                        }
+                        key.to_string()
+                    })
+                    .unwrap_or_default(),
+            },
             InputMode::Locked => Action::Write {
                 key_with_modifier: key_with_modifier.cloned(),
                 bytes: raw_bytes,
@@ -195,3 +209,64 @@ fn handle_ctrl_j(
 #[cfg(test)]
 #[path = "./unit/keybinds_test.rs"]
 mod keybinds_test;
+
+#[cfg(test)]
+mod keyboard_copy_tests {
+    use super::*;
+    use crate::{data::KeyModifier, input::config::Config};
+    use std::str::FromStr;
+
+    #[test]
+    fn keyboard_copy_normalizes_shifted_protocol_characters() {
+        for (character, expected) in [('g', "G"), ('V', "V"), ('$', "$")] {
+            let key = KeyWithModifier {
+                bare_key: BareKey::Char(character),
+                key_modifiers: [KeyModifier::Shift].into_iter().collect(),
+            };
+            assert_eq!(
+                Keybinds::default().default_action_for_mode(
+                    &InputMode::Copy,
+                    Some(&key),
+                    vec![],
+                    InputMode::Normal,
+                    true
+                ),
+                Action::CopyModeInput {
+                    key: expected.to_owned()
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn keyboard_copy_presets_keep_page_up_and_selection_escape() {
+        for preset in [
+            include_str!("../../assets/keybinds/default.kdl"),
+            include_str!("../../assets/keybinds/unlock-first.kdl"),
+        ] {
+            let preset = preset
+                .replace("{primary}", "Ctrl")
+                .replace("{secondary}", "Alt")
+                .replace("{unlock}", "Ctrl g");
+            let config = Config::from_kdl(&preset, None).expect("parse shipped keymap");
+            for (key, expected) in [("Ctrl b", "Ctrl b"), ("Esc", "ESC")] {
+                let key = KeyWithModifier::from_str(key).unwrap();
+                let actions = config
+                    .keybinds
+                    .get_actions_for_key_in_mode_or_default_action(
+                        &InputMode::Copy,
+                        &key,
+                        vec![],
+                        InputMode::Normal,
+                        false,
+                    );
+                assert_eq!(
+                    actions,
+                    vec![Action::CopyModeInput {
+                        key: expected.to_owned()
+                    }]
+                );
+            }
+        }
+    }
+}

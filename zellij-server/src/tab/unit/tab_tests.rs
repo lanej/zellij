@@ -21562,3 +21562,33 @@ fn showing_bars_above_and_below_split_panes_restores_the_layout() {
     tab.resize_whole_tab(size).unwrap();
     assert_eq!(all_tiled_geoms(&tab), before);
 }
+
+#[test]
+fn keyboard_copy_cleanup_releases_a_suppressed_owner_and_buffered_output() {
+    let mut tab = create_new_tab(Size { cols: 80, rows: 12 }, true);
+    tab.handle_pty_bytes(1, b"original".to_vec()).unwrap();
+    assert!(tab.start_copy_mode(1));
+    tab.replace_active_pane_with_editor_pane(PaneId::Terminal(2), 1)
+        .unwrap();
+    assert_eq!(
+        tab.suppressed_panes[&PaneId::Terminal(2)].1.pid(),
+        PaneId::Terminal(1)
+    );
+    tab.handle_pty_bytes(1, b" FRESH OUTPUT".to_vec()).unwrap();
+    assert!(tab
+        .pending_vte_events
+        .get(&1)
+        .is_some_and(|events| !events.is_empty()));
+    tab.end_copy_mode(1).unwrap();
+    let original = &tab.suppressed_panes[&PaneId::Terminal(2)].1;
+    assert!(!original.is_scrolled());
+    assert!(original.dump_screen(false, None).contains("FRESH OUTPUT"));
+    assert!(tab.pending_vte_events.get(&1).is_none_or(Vec::is_empty));
+    tab.replace_pane_with_suppressed_pane(PaneId::Terminal(2))
+        .unwrap();
+    assert!(tab
+        .get_active_pane(1)
+        .unwrap()
+        .dump_screen(false, None)
+        .contains("FRESH OUTPUT"));
+}

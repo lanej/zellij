@@ -1987,6 +1987,9 @@ pub enum InputMode {
     Tmux,
     #[serde(alias = "renamesession")]
     RenameSession,
+    /// Keyboard cursor movement and selection in terminal scrollback.
+    #[serde(alias = "copy")]
+    Copy,
 }
 
 impl Default for InputMode {
@@ -2168,6 +2171,7 @@ impl FromStr for InputMode {
             "tab" | "Tab" => Ok(InputMode::Tab),
             "search" | "Search" => Ok(InputMode::Search),
             "scroll" | "Scroll" => Ok(InputMode::Scroll),
+            "copy" | "Copy" => Ok(InputMode::Copy),
             "renametab" | "RenameTab" => Ok(InputMode::RenameTab),
             "renamepane" | "RenamePane" => Ok(InputMode::RenamePane),
             "renamesession" | "RenameSession" => Ok(InputMode::RenameSession),
