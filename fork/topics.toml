@@ -6,6 +6,7 @@ next_runtime = "ff852b1b50b034f27ad5766f2349f40c83f76dd2"
 ci_green_fallback = "aa8b83d76ebf5163f68188bd3a4630b62b251d03"
 runtime_ci = "https://github.com/lanej/zellij/actions/runs/43044691280"
 fallback_ci = "https://github.com/lanej/zellij/actions/runs/42543514823"
+upstream_scope = "core support required by external plugins"
 
 [[topics]]
 branch = "fix/upstream-cli-completion"
@@ -16,6 +17,7 @@ base = "upstream/main"
 dependencies = []
 source_commits = ["8072318b"]
 checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
+upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-shutdown-flush"
@@ -26,6 +28,7 @@ base = "upstream/main"
 dependencies = []
 source_commits = ["18be8a2a"]
 checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
+upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-pending-initial-client"
@@ -37,6 +40,7 @@ dependencies = []
 source_commits = ["dfc4f414"]
 checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
 preserved_fork_branch = "fix/pending-initial-client"
+upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-atomic-permission-cache"
@@ -48,6 +52,7 @@ dependencies = []
 source_commits = ["315e27e1"]
 checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
 preserved_fork_branch = "fix/atomic-permission-cache"
+upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-plugin-unicode"
@@ -59,6 +64,7 @@ dependencies = []
 source_commits = ["876c9e05"]
 checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
 preserved_fork_branch = "codex/popup-paste-and-unicode"
+upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-popup-input"
@@ -70,75 +76,94 @@ dependencies = []
 source_commits = ["876c9e05", "7d738ed5"]
 checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
 preserved_fork_branch = "codex/popup-paste-and-unicode"
+upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-manager-help"
 head = "e34e83220fd77db211559e6b665ca3faf3444c38"
 capability = "Manager help without function keys"
-state = "prepared-unvalidated"
+state = "fork-only"
 base = "upstream/main"
 dependencies = []
 source_commits = ["c1d81ae1"]
 checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
 preserved_fork_branch = "fix/manager-help-without-function-keys"
+upstream_eligible = false
+scope_reason = "Bundled session-manager behavior is outside the upstream core-support scope; fork PR #4 is closed and the branch is preserved."
 
 [[topics]]
 branch = "fix/upstream-nested-session-cycles"
-head = "4f952f094cbbbb50a2d2ed5e0a60f7d91f2006bf"
+head = "6fa588a6f173df6764ab617b970f8e8dd3612702"
 capability = "Nested-session cycle guard"
-state = "prepared-unvalidated"
+state = "validated-core-candidate"
 base = "upstream/main"
 dependencies = []
 source_commits = ["b03ac024", "3e4d4edf", "5ad1a5ec", "9c73966e", "71d61495"]
-checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
+checks = ["rustfmt", "independent-review", "nested-server-regressions"]
 preserved_fork_branch = "fix/nested-session-cycles"
+upstream_eligible = true
+fork_review_pr = 7
+fork_review_head = "99efaa9ffc4c76dcfb3cdd4eafb9cfa045304266"
+scope_note = "Guard host input at authoritative registration; no unbounded retired-client set."
 
 [[topics]]
 branch = "feature/upstream-scroll-indicators"
 head = "9573f4a0e320bc3e74e4e655a92201239b482295"
 capability = "Configurable idle scroll indicators"
-state = "prepared-unvalidated"
+state = "fork-only"
 base = "upstream/main"
 dependencies = []
 source_commits = ["92e178c0", "d191c6be", "744c99f5"]
 checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
 preserved_fork_branch = "fix/hide-scroll-label"
+upstream_eligible = false
+scope_reason = "Cosmetic native/configuration UI customization remains fork-only, outside the current upstream queue."
 
 [[topics]]
 branch = "feature/upstream-keyboard-copy-mode"
-head = "df782c12efb1efc66bb4c3d4e22f5b61b1e90677"
+head = "ecb67700f44dc9e4dff4bb7dc387b1608f4f2f28"
 capability = "Native keyboard copy mode"
-state = "prepared-unvalidated"
+state = "validated-core-candidate"
 base = "upstream/main"
 dependencies = []
 source_commits = ["9ddbb996"]
-checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
+checks = ["rustfmt", "independent-review", "full-server-library-tests", "full-utility-library-tests"]
 preserved_fork_branch = "feature/keyboard-copy-mode"
+upstream_eligible = true
+scope_note = "No shipped shortcuts or preset changes; only required existing-bars enum compatibility."
 
 [[topics]]
 branch = "feature/upstream-copy-mode-plugin-api"
-head = "14d0140916fe78582d188eba33696088fa73b02d"
+head = "89ab1a04fb33939ea73a1af8cd52c9e96585e610"
 capability = "Native copy-mode plugin controls"
-state = "prepared-unvalidated"
+state = "validated-core-candidate"
 base = "feature/upstream-keyboard-copy-mode"
 dependencies = ["feature/upstream-keyboard-copy-mode"]
-source_commits = ["64fd2d37"]
-checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
+source_commits = ["64fd2d37", "1fb8a39f", "996bbc31"]
+checks = ["rustfmt", "independent-review", "native-copy-and-protocol-tests", "native-cell-session-regression", "fixture-wasm-build", "four-plugin-api-integration-tests", "existing-bars-wasm-check"]
 preserved_fork_branch = "codex/copy-mode-hop-plugin"
+upstream_eligible = true
+fork_review_pr = 9
+fork_review_head = "996bbc31f4d3f39f20275ed419fd4a85c36e7a42"
+scope_note = "External-plugin API plus the existing literal-operation test fixture; no optional plugin implementation, installation, or keymaps."
 
 [[topics]]
 branch = "feature/upstream-copy-hop"
 head = "f04ec1b658568554a816a59c35a4b7d84478372c"
 capability = "Hop labeled character jumps"
-state = "prepared-unvalidated"
+state = "fork-only"
 base = "feature/upstream-copy-mode-plugin-api"
 dependencies = ["feature/upstream-copy-mode-plugin-api"]
 source_commits = ["7c5c8357"]
 checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
 preserved_fork_branch = "codex/copy-mode-hop-plugin"
+upstream_eligible = false
+scope_reason = "User plugin implementation and keymap policy belong outside the upstream core queue; preserve this historical branch without submitting it."
 
 [[topics]]
 branch = "feat/compact-agent-pane-titles"
 head = "51fa87f0fb2a357a5d2c7f62224b945e9dbec69f"
 state = "closed-preserved"
 note = "Fork PR #2 was closed; not selected for integration or upstream preparation."
+upstream_eligible = false
+scope_reason = "Closed fork customization; not selected for upstream submission."

@@ -16,6 +16,12 @@ This guide and [fork/topics.toml](../fork/topics.toml) live on fork-maintenance,
 
 Contribution branches exchange only their capability's code, tests, and relevant public documentation. Fork CI, this guide, the inventory, integration conflict resolutions, and local AGENTS.md remain within fork maintenance/integration. A PR based on lanej-runtime or lanej-runtime-next is a fork integration review; those branches are unsuitable bases for independent upstream PRs.
 
+## Upstream scope
+
+The upstream queue contains core fixes and capabilities required by external plugins. User plugin implementations, matching/label-assignment policy, installation, and keymaps remain outside that queue. Required exhaustive-match compatibility in existing plugins and literal-operation test fixtures are integration requirements, not new shipped plugin features.
+
+Session-manager help, Hop, scroll-indicator customization, and compact agent titles remain preserved fork/external-plugin work. Do not submit those branches as part of the current upstream effort.
+
 ## Checkpoints as of 2026-11-11
 
 - Upstream mirror: c8585459c37186fae1321727ad8dd4c96480ef41.
@@ -28,28 +34,41 @@ Checkpoint tags are immutable. Advancing a branch does not change the installer 
 
 ## Upstream candidates
 
-Ten candidates start directly at the upstream mirror; the plugin API and Hop form a dependency stack on keyboard copy mode. All candidate source diffs and Rust formatting were checked, with independent structural review. Snapshot files retain meaningful rendered whitespace and are excluded from the source whitespace check. Compilation/tests of the combined runtime do not validate these independent heads. None is submission-ready until its own required checks, current-upstream reproduction where applicable, and upstream policy gates are satisfied.
+Eight candidates are independent of one another; the plugin API depends on the native selection capability. Keep those two capabilities as separate cohesive changes. Do not add default shortcuts or optional plugins to demonstrate the API.
 
-| Branch | Capability | Actual prerequisite |
+| Candidate | Scope | Prerequisite |
 | --- | --- | --- |
-| fix/upstream-cli-completion | CLI completion replies | None |
-| fix/upstream-shutdown-flush | Bounded shutdown flush | None |
-| fix/upstream-pending-initial-client | Pending initial client registration | None |
-| fix/upstream-atomic-permission-cache | Atomic permission-cache updates | None |
-| fix/upstream-plugin-unicode | Unicode plugin key scalars | None |
-| fix/upstream-popup-input | Focused popup paste routing | None |
-| fix/upstream-manager-help | Manager help without function keys | None |
-| fix/upstream-nested-session-cycles | Nested-session cycle guard | None |
-| feature/upstream-scroll-indicators | Configurable idle scroll indicators | None |
-| feature/upstream-keyboard-copy-mode | Native keyboard copy mode | None |
-| feature/upstream-copy-mode-plugin-api | Native copy-mode plugin controls | feature/upstream-keyboard-copy-mode |
-| feature/upstream-copy-hop | Hop labeled character jumps | feature/upstream-copy-mode-plugin-api |
+| fix/upstream-cli-completion | Requesting-client CLI reply completion | None |
+| fix/upstream-shutdown-flush | Bounded exit-message flush | None |
+| fix/upstream-pending-initial-client | Initial registration lifecycle | None |
+| fix/upstream-atomic-permission-cache | Concurrent cache persistence | None |
+| fix/upstream-plugin-unicode | Unicode scalar conversion | None |
+| fix/upstream-popup-input | Interactive paste and explicit CLI destinations | None |
+| fix/upstream-nested-session-cycles | Recursive switch prevention and current-client host frames | None |
+| feature/upstream-keyboard-copy-mode | Native selection engine and opt-in mode | None |
+| feature/upstream-copy-mode-plugin-api | Guarded cells, labels, cursor movement and ordered capture | Native selection |
 
-The original popup/Unicode fork PR combines independent changes; its upstream candidates separate them. The nested-session candidate consolidates the original implementation/follow-ups and omits unrelated formatting changes. The pending-client port preserves upstream recent-disconnect bookkeeping alongside the explicit pending identity. Protocol-bearing branches use upstream-compatible unused numbers and exclude inherited fork-only options/tests.
+The native selection candidate leaves shipped preset files unchanged. Existing shared keyboard/mouse rules naturally expand into the additive mode; regenerated snapshots were checked to contain only those new-mode sections, with every existing mode unchanged. Its full affected libraries pass: 2,805 server tests and 1,209 utility tests; existing ignored tests remain ignored. The two small bars changes only make enum matches exhaustive and compile on wasm32-wasip1.
 
-Original fork PRs [#4](https://github.com/lanej/zellij/pull/4), [#7](https://github.com/lanej/zellij/pull/7), and [#9](https://github.com/lanej/zellij/pull/9) and all original topic branches remain intact. No upstream PRs by lanej existed at the audit, and this organization creates none. The closed compact-title branch is preserved but not selected. Partial extraction experiments are not submission candidates; original implementations remain on published branches.
+The plugin API candidate is refreshed from the core-only fork PR. Native copy/protocol regressions and the cell/session-token regression pass. All four whole-app API tests pass with a freshly compiled existing fixture, covering input ordering/output recovery, Unicode boundaries, resize/reload cleanup, and focused-popup precedence. No Hop implementation, plugin installation, or jump/keymap policy is included. The public API documentation describes the capability neutrally and provides a focused fixture build/test command.
 
-The inherited Rust workflow runs on main pushes, PRs targeting main, or workflow_dispatch. Publishing a topic branch does not automatically run it. Run applicable local checks on that branch and manually dispatch the upstream workflow for the selected ref when useful. Build/Test jobs do not replace the complete contribution requirements or runtime acceptance.
+The nested-session candidate passes all 76 selected server regressions, with five existing ignored tests. Review found that retaining every disconnected client ID in Screen was unbounded. The repair uses authoritative SessionState registration instead: pending handshakes remain valid, membership/ancestry/enqueue share the registration lock, removed/deferred frames are rejected, and legitimate reused IDs work. The screen tombstones were removed. The same fix is in fork PR #7, whose branch was refreshed by forward-merging the current runtime base. Clippy still stops at the unchanged upstream clippy::eq_op in output/mod.rs; this is not a clean lint result.
+
+The other six independent candidates retain their earlier source/format review status; the inventory does not claim that combined-runtime tests validate each individual head. Every upstream submission still needs its own applicable checks, reproduction where relevant, maintainer policy gates, and owner-authored submission text. Larger core features should be discussed with maintainers before submission.
+
+## Fork PR state
+
+| PR | Scope and state |
+| --- | --- |
+| [#4](https://github.com/lanej/zellij/pull/4) | Closed: bundled session-manager help is outside the selected scope; source branch retained |
+| [#7](https://github.com/lanej/zellij/pull/7) | Ready for fork review at 99efaa9f; lifecycle repair reviewed and locally tested; current-head Linux/macOS CI pending |
+| [#9](https://github.com/lanej/zellij/pull/9) | Ready for fork review at 996bbc31; already core-only, with Linux CI passing and macOS CI pending at this snapshot |
+
+The active #9 branch was left intact while its owner/checks were active. Its clean upstream candidate was refreshed separately. Existing merged PRs and published runtime/stable history remain preserved. No upstream PR was opened or described by this work.
+
+The prepared API head before this scope correction is preserved by annotated tag fork-checkpoint/copy-api-before-core-scope-2026-11-11. Its prepared branch was restacked with an explicit expected-head lease; no active PR used that prepared branch. The historical upstream-copy-hop branch remains only as preserved source and is ineligible for the current upstream queue.
+
+Inherited Rust CI runs on main pushes, PRs targeting main, or explicit dispatch; publishing a candidate does not automatically validate it. Fork PR #7 now explicitly runs the nested lifecycle detectors in its native workflow. Both open fork PRs still need their current-head hosted results before any merge decision. These are fork integration reviews; upstream contribution heads remain separate and clean.
 
 ## Wire migration for the rebased runtime
 
