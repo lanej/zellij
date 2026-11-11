@@ -4947,3 +4947,23 @@ fn clear_resurrect_command_wire_roundtrip() {
         resurrect: None,
     });
 }
+
+#[test]
+fn keyboard_copy_client_server_contract() {
+    test_client_roundtrip!(ClientToServerMsg::Action {
+        action: Action::CopyModeInput {
+            key: "Ctrl b".to_owned()
+        },
+        terminal_id: Some(1),
+        client_id: Some(100),
+        is_cli_client: false,
+    });
+    test_client_roundtrip!(ClientToServerMsg::Action {
+        action: Action::SwitchToMode {
+            input_mode: InputMode::Copy
+        },
+        terminal_id: Some(1),
+        client_id: Some(100),
+        is_cli_client: false,
+    });
+}

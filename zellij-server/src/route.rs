@@ -728,6 +728,15 @@ fn route_action_with_origin(
                 ))
                 .with_context(err_context)?;
         },
+        Action::CopyModeInput { key } => {
+            senders
+                .send_to_screen(ScreenInstruction::CopyModeInput(
+                    key,
+                    client_id,
+                    Some(NotificationEnd::new(completion_tx)),
+                ))
+                .with_context(err_context)?;
+        },
         Action::SelectCommandAtScrollPosition => {
             senders
                 .send_to_screen(ScreenInstruction::SelectCommandAtScrollPosition(

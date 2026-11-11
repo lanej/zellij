@@ -1470,6 +1470,7 @@ impl From<crate::input::actions::Action>
             ConfirmAction,
             CopyAction,
             CopyLastCommandOutputAction,
+            CopyModeInputAction,
             CurrentTabInfoAction,
             DenyAction,
             DetachAction,
@@ -1781,6 +1782,9 @@ impl From<crate::input::actions::Action>
             },
             crate::input::actions::Action::ScrollToNextPrompt => {
                 ActionType::ScrollToNextPrompt(ScrollToNextPromptAction {})
+            },
+            crate::input::actions::Action::CopyModeInput { key } => {
+                ActionType::CopyModeInput(CopyModeInputAction { key })
             },
             crate::input::actions::Action::SelectCommandAtScrollPosition => {
                 ActionType::SelectCommandAtScrollPosition(SelectCommandAtScrollPositionAction {})
@@ -2858,6 +2862,9 @@ impl TryFrom<crate::client_server_contract::client_server_contract::Action>
             },
             ActionType::ScrollToNextPrompt(_) => {
                 Ok(crate::input::actions::Action::ScrollToNextPrompt)
+            },
+            ActionType::CopyModeInput(payload) => {
+                Ok(crate::input::actions::Action::CopyModeInput { key: payload.key })
             },
             ActionType::SelectCommandAtScrollPosition(_) => {
                 Ok(crate::input::actions::Action::SelectCommandAtScrollPosition)
@@ -4199,6 +4206,7 @@ fn input_mode_to_proto_i32(mode: InputMode) -> i32 {
         InputMode::Prompt => ProtoInputMode::Prompt as i32,
         InputMode::Tmux => ProtoInputMode::Tmux as i32,
         InputMode::RenameSession => ProtoInputMode::RenameSession as i32,
+        InputMode::Copy => ProtoInputMode::Copy as i32,
     }
 }
 
@@ -4219,6 +4227,7 @@ fn proto_i32_to_input_mode(i: i32) -> Result<InputMode> {
         Some(ProtoInputMode::Prompt) => Ok(InputMode::Prompt),
         Some(ProtoInputMode::Tmux) => Ok(InputMode::Tmux),
         Some(ProtoInputMode::RenameSession) => Ok(InputMode::RenameSession),
+        Some(ProtoInputMode::Copy) => Ok(InputMode::Copy),
         _ => Err(anyhow!("Invalid InputMode value: {}", i)),
     }
 }

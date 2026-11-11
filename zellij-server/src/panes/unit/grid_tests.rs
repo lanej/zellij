@@ -10985,3 +10985,145 @@ fn stored_scrollback_blanks_rewrap_like_cells_on_resize() {
     let texts: Vec<usize> = grid.viewport.iter().map(|row| row.width()).collect();
     assert_eq!(texts, vec![30, 30, 20, 30, 30]);
 }
+
+fn keyboard_copy_keys(grid: &mut Grid, keys: &[&str]) -> Option<String> {
+    use crate::panes::copy_mode::CopyModeResult;
+    let mut copied = None;
+    for key in keys {
+        match grid.copy_mode_input(key, 1) {
+            CopyModeResult::Yank(text) => copied = Some(text),
+            CopyModeResult::Continue => {},
+            CopyModeResult::Exit => panic!("unexpected copy-mode exit for {key}"),
+        }
+    }
+    copied
+}
+
+#[test]
+fn keyboard_copy_word_motions_and_reverse_selection() {
+    let mut grid = create_grid_with_size_and_raw(3, 40, b"alpha beta! gamma");
+    assert!(grid.start_copy_mode(1));
+    let copied = keyboard_copy_keys(&mut grid, &["g", "g", "w", "e", "v", "b", "y"]);
+    assert_eq!(copied.as_deref(), Some("beta"));
+    assert_eq!(grid.copy_mode_cursor(Some(1)), Some((6, 0, true)));
+    assert!(grid.selection.contains(0, 6));
+    assert!(grid.selection.contains(0, 9));
+    assert!(!grid.selection.contains(0, 10));
+}
+
+#[test]
+fn keyboard_copy_selection_crosses_pages_and_keeps_text_identity() {
+    let content = (1..=30)
+        .map(|n| format!("line{n:02}\r\n"))
+        .collect::<String>();
+    let mut grid = create_grid_with_size_and_raw(4, 12, content.as_bytes());
+    assert!(grid.start_copy_mode(1));
+    let copied = keyboard_copy_keys(&mut grid, &["g", "g", "V", "2", "9", "j", "y"]);
+    let expected = (1..=30)
+        .map(|n| format!("line{n:02}\n"))
+        .collect::<String>();
+    assert_eq!(copied.as_deref(), Some(expected.as_str()));
+    assert!(grid.end_copy_mode(1));
+    assert!(!grid.is_scrolled);
+}
+
+#[test]
+fn keyboard_copy_wrapped_logical_line_has_no_artificial_newlines() {
+    let content = "alpha beta gamma delta epsilon";
+    let mut grid = create_grid_with_size_and_raw(3, 8, content.as_bytes());
+    assert!(grid.start_copy_mode(1));
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["g", "g", "V", "y"]).as_deref(),
+        Some(format!("{content}\n").as_str())
+    );
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["ESC", "g", "g", "v", "G", "$", "y"]).as_deref(),
+        Some(content)
+    );
+}
+
+#[test]
+fn keyboard_copy_cursor_and_selection_use_whole_unicode_characters() {
+    let mut grid = create_grid_with_size_and_raw(3, 20, "a你e\u{301}z".as_bytes());
+    assert!(grid.start_copy_mode(1));
+    keyboard_copy_keys(&mut grid, &["g", "g", "l"]);
+    assert_eq!(grid.copy_mode_cursor(Some(1)), Some((1, 0, true)));
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["v", "y"]).as_deref(),
+        Some("你")
+    );
+    keyboard_copy_keys(&mut grid, &["ESC", "l"]);
+    assert_eq!(grid.copy_mode_cursor(Some(1)), Some((3, 0, true)));
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["v", "y"]).as_deref(),
+        Some("e\u{301}")
+    );
+}
+
+#[test]
+fn keyboard_copy_line_numbers_counts_and_column_goal() {
+    let content = (1..=50)
+        .map(|n| format!("line{n:02}\r\n"))
+        .collect::<String>();
+    let mut grid = create_grid_with_size_and_raw(4, 12, content.as_bytes());
+    assert!(grid.start_copy_mode(1));
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["4", "2", "G", "V", "y"]).as_deref(),
+        Some("line42\n")
+    );
+    keyboard_copy_keys(&mut grid, &["ESC", "g", "g", "3", "l", "2", "j"]);
+    assert_eq!(grid.copy_mode_cursor(Some(1)).map(|p| p.0), Some(3));
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["0", "v", "$", "y"]).as_deref(),
+        Some("line03")
+    );
+}
+
+#[test]
+fn keyboard_copy_escape_cancels_selection_before_exiting_and_respects_owner() {
+    use crate::panes::copy_mode::CopyModeResult;
+    let mut grid = create_grid_with_size_and_raw(3, 20, b"hello");
+    assert!(grid.start_copy_mode(1));
+    assert!(!grid.start_copy_mode(2));
+    assert!(grid.copy_mode_cursor(Some(2)).is_none());
+    keyboard_copy_keys(&mut grid, &["g", "g", "v"]);
+    assert!(!grid.selection.is_empty());
+    assert!(matches!(grid.copy_mode_input("y", 2), CopyModeResult::Exit));
+    assert!(!grid.end_copy_mode(2));
+    keyboard_copy_keys(&mut grid, &["ESC"]);
+    assert!(grid.selection.is_empty());
+    assert!(matches!(
+        grid.copy_mode_input("ESC", 1),
+        CopyModeResult::Exit
+    ));
+    assert!(grid.end_copy_mode(1));
+}
+
+#[test]
+fn keyboard_copy_resize_cancels_instead_of_copying_stale_coordinates() {
+    use crate::panes::copy_mode::CopyModeResult;
+    let mut grid = create_grid_with_size_and_raw(3, 20, b"hello world");
+    assert!(grid.start_copy_mode(1));
+    keyboard_copy_keys(&mut grid, &["g", "g", "v", "e"]);
+    grid.change_size(4, 10);
+    assert!(grid.copy_mode_cursor(Some(1)).is_none());
+    assert!(grid.selection.is_empty());
+    assert!(matches!(grid.copy_mode_input("y", 1), CopyModeResult::Exit));
+}
+
+#[test]
+fn keyboard_copy_shared_viewport_cannot_move_under_the_selection() {
+    let content = (1..=30)
+        .map(|n| format!("line{n:02}\r\n"))
+        .collect::<String>();
+    let mut grid = create_grid_with_size_and_raw(4, 12, content.as_bytes());
+    assert!(grid.start_copy_mode(1));
+    keyboard_copy_keys(&mut grid, &["g", "g", "v", "e"]);
+    let before = grid.dump_screen(false);
+    grid.move_viewport_down(10);
+    assert_eq!(grid.dump_screen(false), before);
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["y"]).as_deref(),
+        Some("line01")
+    );
+}
