@@ -2,7 +2,7 @@ schema_version = 1
 updated = "2026-11-11"
 upstream_base = "c8585459c37186fae1321727ad8dd4c96480ef41"
 runtime = "5f8dd464fc97a0bb77feaaec617f0ac3f8cd5026"
-next_runtime = "96972bac57111bcf738e2b78bfd40970bb211e89"
+next_runtime = "ff852b1b50b034f27ad5766f2349f40c83f76dd2"
 ci_green_fallback = "aa8b83d76ebf5163f68188bd3a4630b62b251d03"
 runtime_ci = "https://github.com/lanej/zellij/actions/runs/43044691280"
 fallback_ci = "https://github.com/lanej/zellij/actions/runs/42543514823"
@@ -62,7 +62,7 @@ preserved_fork_branch = "codex/popup-paste-and-unicode"
 
 [[topics]]
 branch = "fix/upstream-popup-input"
-head = "99e7614ceade0353ee53dd688ff524936528df3a"
+head = "580d19c6dd782890a3ea846c58ecdb136cd70f03"
 capability = "Focused popup paste routing"
 state = "prepared-unvalidated"
 base = "upstream/main"
@@ -106,7 +106,7 @@ preserved_fork_branch = "fix/hide-scroll-label"
 
 [[topics]]
 branch = "feature/upstream-keyboard-copy-mode"
-head = "ba5003520f4ba39df95c7f715de94b4f966049b1"
+head = "df782c12efb1efc66bb4c3d4e22f5b61b1e90677"
 capability = "Native keyboard copy mode"
 state = "prepared-unvalidated"
 base = "upstream/main"
@@ -117,7 +117,7 @@ preserved_fork_branch = "feature/keyboard-copy-mode"
 
 [[topics]]
 branch = "feature/upstream-copy-mode-plugin-api"
-head = "4f97fe0a355fb6653f16de64612d9b4b42c3d139"
+head = "14d0140916fe78582d188eba33696088fa73b02d"
 capability = "Native copy-mode plugin controls"
 state = "prepared-unvalidated"
 base = "feature/upstream-keyboard-copy-mode"
@@ -128,7 +128,7 @@ preserved_fork_branch = "codex/copy-mode-hop-plugin"
 
 [[topics]]
 branch = "feature/upstream-copy-hop"
-head = "943011881f44ae01abe5fcddcb3cc399443d5bed"
+head = "f04ec1b658568554a816a59c35a4b7d84478372c"
 capability = "Hop labeled character jumps"
 state = "prepared-unvalidated"
 base = "feature/upstream-copy-mode-plugin-api"

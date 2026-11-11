@@ -21,8 +21,8 @@ Contribution branches exchange only their capability's code, tests, and relevant
 - Upstream mirror: c8585459c37186fae1321727ad8dd4c96480ef41.
 - Published runtime and unchanged dotfiles installation pin: 5f8dd464fc97a0bb77feaaec617f0ac3f8cd5026, preserved by annotated tag lanej-runtime-checkpoint-2026-11-11.
 - Last CI-green fallback: aa8b83d76ebf5163f68188bd3a4630b62b251d03, referenced by lanej-stable and annotated tag lanej-ci-green-2026-11-11. It predates keyboard copy mode. Linux and macOS native-regressions passed in [run 42543514823](https://github.com/lanej/zellij/actions/runs/42543514823); that coverage does not establish every terminal workflow.
-- Published runtime [run 43044691280](https://github.com/lanej/zellij/actions/runs/43044691280) passed on macOS but failed on Linux. Its original Linux attempt failed at package installation with DNS errors, before tests; the failed job was retried and still did not produce a green run. Inspect live logs for the retry's cause.
-- Next-generation runtime: 96972bac57111bcf738e2b78bfd40970bb211e89. Its upstream/fork rebase is resolved, with generated bindings refreshed using official protoc 23.4 and cargo xtask proto. Validation and promotion status are recorded below; publication is not stable acceptance.
+- Published runtime [run 43044691280](https://github.com/lanej/zellij/actions/runs/43044691280) passed on macOS but failed on Linux. Its original Linux attempt failed at package installation with DNS errors, before tests; the failed job was retried and again failed at apt DNS resolution, before test execution.
+- Next-generation runtime: ff852b1b50b034f27ad5766f2349f40c83f76dd2. Its upstream/fork rebase is resolved, with generated bindings refreshed using official protoc 23.4 and cargo xtask proto. Validation and promotion status are recorded below; publication is not stable acceptance.
 
 Checkpoint tags are immutable. Advancing a branch does not change the installer pin. Replacing an executable does not update existing session servers.
 
@@ -73,6 +73,12 @@ Before submission, refresh upstream, verify current bug reproduction where appli
 
 ## Runtime validation and promotion
 
+On macOS, the final runtime code passes 2,814 server library tests and 1,222 utility library tests with the pinned Rust toolchain. The server run excludes two temporary-file safety tests that also fail on unchanged upstream c8585459 when its checkout resides under /tmp; 185 server tests and two utility tests retain their existing ignored status. Four configuration snapshots were corrected after the rebase retained an obsolete F9 session-card binding in Copy mode.
+
+The full server run exposed a fork popup regression that passes on unchanged upstream: generic WriteCharacter capture stole explicit CLI writes from their pane. The repair preserves interactive versus CLI provenance in the input router and passes the existing CLI-write detector, a Unicode bracketed-paste screen-thread detector, keyboard-popup routing, and rejection of pasted permission answers. The standalone popup candidate includes the same repair. Independent review approved the material fix, and the runtime workflow now runs those four regression tests explicitly.
+
+Linux/macOS hosted checks for the final runtime head, actual dotfiles installation/client-binding refresh, and real-terminal acceptance remain promotion gates. The published topic branches have structural/format checks; their individual behavioral readiness remains unclaimed.
+
 The next runtime was rebased with merge topology retained. After replaying/reconciling all selected patches, history bridge 96972bac recorded the preserved runtime as a second parent while keeping the rebased tree exactly. That deliberate supersession merge permits future fast-forward promotion without force-pushing published runtime/stable refs. It is not an ordinary content merge or a general conflict-resolution shortcut. Independent upstream branches exclude this fork ancestry.
 
 The Lanej runtime workflow now covers both lanej-runtime and lanej-runtime-next. Validate the exact final candidate head on Linux/macOS and run affected real-terminal/plugin workflows. Record manual acceptance and exact heads here before promotion. Then fast-forward lanej-runtime and lanej-stable to that validated descendant, create a new immutable checkpoint, and update the dotfiles pin in its own reviewed change with the coordinated wire migration. Retain the old tag/pin for rollback.
@@ -83,6 +89,6 @@ Branch protection prevents force pushes and deletion of main, lanej-runtime, and
 
 The upstream remote fetches zellij-org/zellij and has a deliberately unusable push URL. Default pushes go to origin (lanej/zellij); main tracks upstream/main with fast-forward-only pulls. Recreate these local settings when cloning; do not add upstream push access as a maintenance side effect.
 
-Use Treehouse from the primary checkout. Acquire contribution work from local main with treehouse get --lease --json --lease-holder <task> --branch fix/<topic> --base main; acquire fork integration work explicitly from lanej-runtime or lanej-runtime-next. Preserve the returned lease identity and return only task-owned leases after preserving work and inspecting valuable ignored files. Do not nest pools or use gh pr checkout to switch worktrees.
+The permanent primary checkout is /Users/joshlane/src/zellij, checked out on fork-maintenance so this guide is immediately visible. The original temporary repository and other sessions' checkouts remain intact. Use Treehouse from the permanent primary checkout for new tasks. Acquire contribution work from local main with treehouse get --lease --json --lease-holder <task> --branch fix/<topic> --base main; acquire fork integration work explicitly from lanej-runtime or lanej-runtime-next. Preserve the returned lease identity and return only task-owned leases after preserving work and inspecting valuable ignored files. Do not nest pools or use gh pr checkout to switch worktrees.
 
 AGENTS.md is intentionally untracked and excluded by /AGENTS.md in the shared Git info/exclude. Copy it into each new checkout/worktree if absent; exclusions propagate across worktrees, file contents do not. Do not force-add it. Published refs preserve Git work, while local configuration, excludes, and instructions must be recreated if a checkout is replaced.
