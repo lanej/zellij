@@ -17149,7 +17149,7 @@ fn a_key_press_reaches_the_focused_popup_and_not_the_pane() {
         .mock_screen
         .to_screen
         .send(ScreenInstruction::KeyToPopup(
-            key.clone(),
+            Some(key.clone()),
             vec![b'a'],
             false,
             client_id,
@@ -17163,6 +17163,47 @@ fn a_key_press_reaches_the_focused_popup_and_not_the_pane() {
         "the key did not reach the pane, got: {:?}",
         pty_writes
     );
+    harness.teardown_and_assert_popup_was_open();
+}
+
+#[test]
+fn a_bracketed_paste_reaches_the_focused_popup_and_not_the_pane() {
+    use crate::panes::terminal_pane::{BRACKETED_PASTE_BEGIN, BRACKETED_PASTE_END};
+    let harness = MockScreenWithPrompt::new(42);
+    let text = "café 界 👩‍💻";
+    for bytes in std::iter::once(BRACKETED_PASTE_BEGIN)
+        .chain(text.as_bytes().chunks(3))
+        .chain(std::iter::once(BRACKETED_PASTE_END))
+    {
+        let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
+        harness
+            .mock_screen
+            .to_screen
+            .send(ScreenInstruction::KeyToPopup(
+                None,
+                bytes.to_vec(),
+                false,
+                1,
+                Some(crate::route::NotificationEnd::new(completion_tx)),
+            ))
+            .unwrap();
+        crate::route::wait_for_action_completion(completion_rx, "KeyToPopup", false).unwrap();
+    }
+    let pastes: Vec<_> = harness
+        .plugin_receiver
+        .try_iter()
+        .filter_map(|(instruction, _)| match instruction {
+            PluginInstruction::Update(updates) => Some(updates),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|(plugin, client, event)| match event {
+            Event::PastedText(text) => Some((plugin, client, text)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pastes, vec![(Some(42), Some(1), text.to_owned())]);
+    assert!(harness.pty_writes().is_empty());
     harness.teardown_and_assert_popup_was_open();
 }
 

@@ -411,7 +411,7 @@ pub enum ScreenInstruction {
     ), // bool ->
     // is_kitty_keyboard_protocol
     KeyToPopup(
-        KeyWithModifier,
+        Option<KeyWithModifier>,
         Vec<u8>,
         bool,
         ClientId,
@@ -11433,9 +11433,9 @@ pub(crate) fn screen_thread_main(
             ) => {
                 screen.record_client_input(client_id);
                 screen.release_live_view_if_unreachable(client_id);
-                if screen.send_key_to_popup(
+                if screen.send_input_to_popup(
                     client_id,
-                    key_with_modifier.clone(),
+                    &key_with_modifier,
                     raw_bytes.clone(),
                     is_kitty_keyboard_protocol,
                 ) {
@@ -11450,7 +11450,7 @@ pub(crate) fn screen_thread_main(
                         .bus
                         .senders
                         .send_to_screen(ScreenInstruction::WriteCharacter(
-                            Some(key_with_modifier),
+                            key_with_modifier,
                             raw_bytes,
                             is_kitty_keyboard_protocol,
                             client_id,
@@ -11486,19 +11486,6 @@ pub(crate) fn screen_thread_main(
                     &raw_bytes,
                     is_kitty_keyboard_protocol,
                 ) {
-                    screen.render(None)?;
-                    continue;
-                }
-                // Paste arrives as WriteCharacter bytes, bypassing the key route.
-                // A focused popup owns this input before pane sync or mode edits.
-                if screen.client_has_focused_popup(client_id)
-                    && screen.send_input_to_popup(
-                        client_id,
-                        &key_with_modifier,
-                        raw_bytes.clone(),
-                        is_kitty_keyboard_protocol,
-                    )
-                {
                     screen.render(None)?;
                     continue;
                 }
