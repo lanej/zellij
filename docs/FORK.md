@@ -1,84 +1,88 @@
 # Maintaining the Lanej Zellij fork
 
-This guide belongs on `fork-maintenance`, separate from both upstream contributions and the installed runtime. The branch inventory is [fork/topics.toml](../fork/topics.toml). Its heads and check results are a dated snapshot; refresh them when advancing a branch. Josh owns contribution scope, runtime promotion, and upstream submission text.
+This guide and [fork/topics.toml](../fork/topics.toml) live on fork-maintenance, separate from upstream contribution branches. The inventory records exact heads, original source commits, preserved fork branches, and real dependencies. Heads and validation are dated snapshots; refresh them when advancing a branch. Josh owns contribution scope, runtime promotion, and upstream submission text.
 
 ## Branch contracts
 
-| Branch | Purpose | Allowed changes |
+| Branch | Purpose | Rule |
 | --- | --- | --- |
-| `main` | Clean upstream mirror | Fast-forward from `zellij-org/zellij:main`; no fork patches or documentation |
-| `fix/upstream-*` | Independent bug-fix candidates | One capability on upstream main; no runtime merge ancestry or fork CI |
-| `lanej-runtime` | Combined development and daily-use runtime | Forward integration of selected features and fork-only CI; never rewrite published history |
-| `lanej-stable` | Conservative fallback | Advance only to an exact runtime commit with passing native CI and recorded manual acceptance |
-| `fork-maintenance` | Fork operating guide and inventory | Fork policy, topic tracking, and evidence links; exclude from contribution branches |
-| Existing feature/fix branches | Preserved fork review history | Keep active PR bases and heads intact until their owners coordinate migration |
+| main | Clean upstream mirror | Fast-forward from zellij-org/zellij:main; no fork patches/docs |
+| fix/upstream-* and feature/upstream-* | Upstream contribution candidates | One capability based on upstream main; stack only for actual dependencies |
+| lanej-runtime | Published runtime generation | Preserve its history and pinned revisions; accept validated forward integration |
+| lanej-runtime-next | Rebased next-generation runtime candidate | Current upstream plus selected fork changes; not promoted or installed |
+| lanej-stable | Conservative fallback | Advance only to an exact validated descendant; no automatic promotion |
+| fork-maintenance | Fork guide and contribution inventory | Keep fork policy and tracking out of upstream diffs |
+| Existing topic branches | Preserved fork review history | Keep active PR heads/bases intact until owners coordinate migration |
 
-Upstream contribution branches exchange only their capability's code, tests, and relevant public documentation. Fork CI, this guide, the inventory, integration conflict resolutions, and local agent instructions stay within fork maintenance/integration. A PR based on `lanej-runtime` is a fork integration review, not evidence that its head is clean for upstream.
+Contribution branches exchange only their capability's code, tests, and relevant public documentation. Fork CI, this guide, the inventory, integration conflict resolutions, and local AGENTS.md remain within fork maintenance/integration. A PR based on lanej-runtime or lanej-runtime-next is a fork integration review; those branches are unsuitable bases for independent upstream PRs.
 
 ## Checkpoints as of 2026-11-11
 
-- Upstream mirror: `c8585459c37186fae1321727ad8dd4c96480ef41`.
-- Runtime and existing dotfiles installation pin: `5f8dd464fc97a0bb77feaaec617f0ac3f8cd5026`. Preserved by annotated tag `lanej-runtime-checkpoint-2026-11-11`; no installation change was made during organization.
-- Last CI-green fallback: `aa8b83d76ebf5163f68188bd3a4630b62b251d03`, referenced by `lanej-stable` and annotated tag `lanej-ci-green-2026-11-11`. This predates keyboard copy mode. Both Linux and macOS native-regressions passed in [run 42543514823](https://github.com/lanej/zellij/actions/runs/42543514823). That check coverage does not establish every terminal workflow.
-- Runtime [run 43044691280](https://github.com/lanej/zellij/actions/runs/43044691280) passed on macOS; its initial Linux attempt failed at apt installation with DNS errors, before executing the tests. The failed Linux job was retried during organization. Check the live run before treating the runtime head as CI-green.
+- Upstream mirror: c8585459c37186fae1321727ad8dd4c96480ef41.
+- Published runtime and unchanged dotfiles installation pin: 5f8dd464fc97a0bb77feaaec617f0ac3f8cd5026, preserved by annotated tag lanej-runtime-checkpoint-2026-11-11.
+- Last CI-green fallback: aa8b83d76ebf5163f68188bd3a4630b62b251d03, referenced by lanej-stable and annotated tag lanej-ci-green-2026-11-11. It predates keyboard copy mode. Linux and macOS native-regressions passed in [run 42543514823](https://github.com/lanej/zellij/actions/runs/42543514823); that coverage does not establish every terminal workflow.
+- Published runtime [run 43044691280](https://github.com/lanej/zellij/actions/runs/43044691280) passed on macOS but failed on Linux. Its original Linux attempt failed at package installation with DNS errors, before tests; the failed job was retried and still did not produce a green run. Inspect live logs for the retry's cause.
+- Next-generation runtime: 96972bac57111bcf738e2b78bfd40970bb211e89. Its upstream/fork rebase is resolved, with generated bindings refreshed using official protoc 23.4 and cargo xtask proto. Validation and promotion status are recorded below; publication is not stable acceptance.
 
-Keep published checkpoint tags immutable. Never move the installer pin just because a branch advanced. Replacing the executable does not update existing Zellij session servers.
+Checkpoint tags are immutable. Advancing a branch does not change the installer pin. Replacing an executable does not update existing session servers.
 
-## Prepared independent candidates
+## Upstream candidates
 
-The following branches each start directly at the upstream mirror above. Their extracted diffs passed `git diff --check` and `cargo +1.95.0 fmt --all -- --check`. Independent review checked their scope and visible dependencies. No compilation, behavioral tests, current-upstream bug reproduction, or maintainer acceptance has been established for these rebased heads. They are preparation branches, not submission-ready or stable-runtime claims.
+Ten candidates start directly at the upstream mirror; the plugin API and Hop form a dependency stack on keyboard copy mode. All candidate source diffs and Rust formatting were checked, with independent structural review. Snapshot files retain meaningful rendered whitespace and are excluded from the source whitespace check. Compilation/tests of the combined runtime do not validate these independent heads. None is submission-ready until its own required checks, current-upstream reproduction where applicable, and upstream policy gates are satisfied.
 
-| Branch | Capability | Source |
+| Branch | Capability | Actual prerequisite |
 | --- | --- | --- |
-| `fix/upstream-cli-completion` | Scope a CLI query response to its requesting client | `8072318b` |
-| `fix/upstream-shutdown-flush` | Flush client exit messages with a bounded shutdown deadline | `18be8a2a` |
-| `fix/upstream-atomic-permission-cache` | Serialize and atomically persist permission-cache updates | `315e27e1` |
-| `fix/upstream-plugin-unicode` | Preserve Unicode scalars in plugin key conversion | Unicode paths from `876c9e05` |
-| `fix/upstream-popup-input` | Route paste to the focused popup | Server paths from `876c9e05`, then `7d738ed5` |
-| `fix/upstream-manager-help` | Make manager key help accessible without function keys | `c1d81ae1` |
+| fix/upstream-cli-completion | CLI completion replies | None |
+| fix/upstream-shutdown-flush | Bounded shutdown flush | None |
+| fix/upstream-pending-initial-client | Pending initial client registration | None |
+| fix/upstream-atomic-permission-cache | Atomic permission-cache updates | None |
+| fix/upstream-plugin-unicode | Unicode plugin key scalars | None |
+| fix/upstream-popup-input | Focused popup paste routing | None |
+| fix/upstream-manager-help | Manager help without function keys | None |
+| fix/upstream-nested-session-cycles | Nested-session cycle guard | None |
+| feature/upstream-scroll-indicators | Configurable idle scroll indicators | None |
+| feature/upstream-keyboard-copy-mode | Native keyboard copy mode | None |
+| feature/upstream-copy-mode-plugin-api | Native copy-mode plugin controls | feature/upstream-keyboard-copy-mode |
+| feature/upstream-copy-hop | Hop labeled character jumps | feature/upstream-copy-mode-plugin-api |
 
-The original popup/Unicode fork PR combines two independent changes; the contribution branches separate them. Existing fork PRs #4, #7, and #9 and all original topic branches remain intact. There were no upstream PRs by lanej at the organization audit.
+The original popup/Unicode fork PR combines independent changes; its upstream candidates separate them. The nested-session candidate consolidates the original implementation/follow-ups and omits unrelated formatting changes. The pending-client port preserves upstream recent-disconnect bookkeeping alongside the explicit pending identity. Protocol-bearing branches use upstream-compatible unused numbers and exclude inherited fork-only options/tests.
 
-The inherited Rust workflow runs on pushes to main, PRs targeting main, or workflow_dispatch. Pushing a topic branch alone does not run it. Run the applicable local tests and checks against that branch; manually dispatch the upstream workflow against the exact branch when useful. Its Build/Test jobs do not substitute for all submission requirements or runtime acceptance.
+Original fork PRs [#4](https://github.com/lanej/zellij/pull/4), [#7](https://github.com/lanej/zellij/pull/7), and [#9](https://github.com/lanej/zellij/pull/9) and all original topic branches remain intact. No upstream PRs by lanej existed at the audit, and this organization creates none. The closed compact-title branch is preserved but not selected. Partial extraction experiments are not submission candidates; original implementations remain on published branches.
 
-## Work requiring adaptation
+The inherited Rust workflow runs on main pushes, PRs targeting main, or workflow_dispatch. Publishing a topic branch does not automatically run it. Run applicable local checks on that branch and manually dispatch the upstream workflow for the selected ref when useful. Build/Test jobs do not replace the complete contribution requirements or runtime acceptance.
 
-| Preserved branch | Remaining work |
-| --- | --- |
-| `fix/pending-initial-client` | Resolve screen-routing overlap and reproduce the issue on current upstream |
-| `fix/nested-session-cycles` (#7) | Separate inherited test-setup dependencies and adapt tests to upstream |
-| `fix/hide-scroll-label` | Reconcile configuration wire fields and regenerate affected assets/snapshots |
-| `feature/keyboard-copy-mode` | Reconcile action/protocol identifiers, fork-influenced tests, and configuration snapshots |
-| `codex/copy-mode-hop-plugin` (#9) | Depends on copy mode; native plugin controls and Hop are separate subsequent contributions |
+## Wire migration for the rebased runtime
 
-The failed extraction attempts were not published as complete candidates. A partial scroll-indicator extraction remains only on local `archive/2026-11-11/scroll-indicator-extraction`; its original full implementation remains on the published `fix/hide-scroll-label`. Do not use the partial extraction for integration or submission. The closed compact-title branch is preserved, not selected for promotion.
+| Contract | Pre-rebase fork meaning | Current upstream meaning | Rebased fork allocation |
+| --- | --- | --- | --- |
+| Options field 88 | hide_scroll_indicator_when_idle Boolean | stacked_pane_list_orientation string | Idle-scroll Boolean moves to field 89 |
+| Plugin action 155 | CopyModeInput | ToggleStackListOrientation | CopyModeInput moves to 157; preserve upstream 155/156 |
+| IPC action 194 | copy_mode_input | toggle_stack_list_orientation | copy_mode_input moves to 196; preserve upstream 194/195 |
 
-For protocol changes, inspect current upstream field numbers and enum variants before adding fields. Regenerate protobuf Rust assets with the documented toolchain and update tests from the actual result. Do not import another fork capability merely to make copied snapshots or test setup compile. Stack contributions only for actual API/behavior dependencies, and name those dependencies explicitly.
+This preserves current upstream wire assignments and intentionally breaks compatibility with the old fork-specific commands. Before installation, regenerate dotfiles bindings from the chosen runtime commit, rebuild affected fork-specific plugins, and validate the client/server/plugin set together. Never send old-fork copy commands to the new runtime: the old numbers mean other actions. Restart all existing session servers/clients together. Legacy plugin mode-event projection does not establish compatibility for fork-specific command IDs.
 
-## Upstream policy and submission
+When upstream allocates another field/action, inspect its schema first, choose an unused identifier, regenerate Rust assets, and verify round trips and actual callers. Keep snapshot expectations tied to the real rendered result rather than importing another feature merely to make snapshots compile.
 
-Read the current [CONTRIBUTING.md](../CONTRIBUTING.md), [upstream copy](https://github.com/zellij-org/zellij/blob/main/CONTRIBUTING.md), and Code of Conduct before contribution work. Zellij asks contributors to establish maintainer willingness and availability for larger roadmap projects; minor fixes may wait. Keep larger features in the fork until Josh establishes upstream interest. Do not contact maintainers automatically.
+## Upstream policy
 
-Zellij requests avoiding LLM-generated issue and PR descriptions. Josh writes upstream submission text. Agent-authored maintenance notes, including this guide, are not submission prose. Do not copy them into issues or PR descriptions or automatically open upstream issues/PRs.
+Read the current [CONTRIBUTING.md](../CONTRIBUTING.md), [upstream guide](https://github.com/zellij-org/zellij/blob/main/CONTRIBUTING.md), and Code of Conduct. Larger roadmap projects require checking maintainer willingness and availability first; minor fixes may wait. Keep local fork development separate from upstream acceptance, and do not contact maintainers automatically.
 
-Before submission, refresh upstream, verify the bug still exists where applicable, inspect the complete diff against upstream main, run the guide's cargo fmt and cargo test requirements plus applicable repository checks, and record unresolved failures accurately. For nontrivial changes, consider an issue discussion first. Follow the guide's contextual Result and error-logging conventions when adapting code.
+Zellij requests avoiding LLM-generated issue/PR descriptions. Josh writes upstream submission text; agent-authored maintenance notes are not submission prose and must not be copied into descriptions. Do not automatically open upstream issues or PRs. For nontrivial work, consider issue discussion first and link the existing discussion when applicable.
 
-Once a contribution merges upstream, record the upstream commit and any semantic differences. Retire the outstanding patch from the next integration plan only after verifying the upstream equivalent preserves the intended behavior. Keep old runtime commits and tags reachable.
+Before submission, refresh upstream, verify current bug reproduction where applicable, inspect the complete diff against the intended base, and meet the guide's cargo fmt and cargo test requirements plus applicable repository checks. Report failures/skips accurately. Use contextual Result errors and documented non_fatal logging when adapting code. After upstream merge, record the accepted commit and semantic differences, then retire the outstanding patch only after confirming the upstream equivalent preserves the intended behavior.
 
-## Runtime integration and promotion
+## Runtime validation and promotion
 
-Integrate selected, reviewed topics into a candidate based on lanej-runtime; incorporate upstream updates as a separate reviewable change. Run Linux/macOS native regressions plus affected terminal/plugin workflows, using the exact candidate commit. A successful branch merge or a CI run on another head does not validate the candidate.
+The next runtime was rebased with merge topology retained. After replaying/reconciling all selected patches, history bridge 96972bac recorded the preserved runtime as a second parent while keeping the rebased tree exactly. That deliberate supersession merge permits future fast-forward promotion without force-pushing published runtime/stable refs. It is not an ordinary content merge or a general conflict-resolution shortcut. Independent upstream branches exclude this fork ancestry.
 
-Record manual acceptance evidence and exact tested heads in this guide/inventory before promotion. On a dedicated stable checkout, advance lanej-stable by fast-forward only to the validated runtime commit; create a new immutable checkpoint tag. Then update the dotfiles commit pin in its own reviewed change and verify installation and session restart. Keep the previous pin/tag available for rollback.
+The Lanej runtime workflow now covers both lanej-runtime and lanej-runtime-next. Validate the exact final candidate head on Linux/macOS and run affected real-terminal/plugin workflows. Record manual acceptance and exact heads here before promotion. Then fast-forward lanej-runtime and lanej-stable to that validated descendant, create a new immutable checkpoint, and update the dotfiles pin in its own reviewed change with the coordinated wire migration. Retain the old tag/pin for rollback.
 
-For a fresh integration experiment, start a disposable candidate from an explicit upstream commit and integrate only the outstanding selected topics. If its ancestry diverges from the published runtime, do not blindly merge it back to remove old patches. Either reconcile through a forward upstream merge on the existing runtime or publish a new versioned runtime branch, validate it, and change the installer pin explicitly. Never force-push lanej-runtime or lanej-stable.
+Branch protection prevents force pushes and deletion of main, lanej-runtime, and lanej-stable. Stable updates require native-regressions (ubuntu-latest) and native-regressions (macos-latest). Those contexts cover selected native regressions, not every acceptance claim. Do not force-push published runtime branches, automatically install an unvalidated candidate, or merge a freshly reconstructed tree merely because Git reports no conflicts.
 
-Branch protection prevents force pushes and deletion of main, lanej-runtime, and lanej-stable. Stable updates additionally require the existing `native-regressions (ubuntu-latest)` and `native-regressions (macos-latest)` contexts. These checks cover selected native regressions; manual acceptance and other applicable checks remain separate obligations. The workflow runs against lanej-runtime before stable promotion.
+## Local checkouts
 
-## Local worktrees and remotes
+The upstream remote fetches zellij-org/zellij and has a deliberately unusable push URL. Default pushes go to origin (lanej/zellij); main tracks upstream/main with fast-forward-only pulls. Recreate these local settings when cloning; do not add upstream push access as a maintenance side effect.
 
-The local upstream remote fetches zellij-org/zellij and has a deliberately unusable push URL. The default push remote is origin (lanej/zellij); main tracks upstream/main, with fast-forward-only pulls. Never configure upstream push access as a side effect of fork maintenance.
+Use Treehouse from the primary checkout. Acquire contribution work from local main with treehouse get --lease --json --lease-holder <task> --branch fix/<topic> --base main; acquire fork integration work explicitly from lanej-runtime or lanej-runtime-next. Preserve the returned lease identity and return only task-owned leases after preserving work and inspecting valuable ignored files. Do not nest pools or use gh pr checkout to switch worktrees.
 
-Use Treehouse from the primary checkout, /private/tmp/zellij-keyboard-copy-mode. Acquire a topic from local main with `treehouse get --lease --json --lease-holder <task> --branch fix/<topic> --base main`. Acquire fork work from local lanej-runtime explicitly. Preserve the returned lease identity, copy the excluded AGENTS.md into the acquired root if absent, and return only task-owned leases after preserving changes and inspecting valuable ignored files. Do not nest pools or use gh pr checkout to switch worktrees.
-
-AGENTS.md is local and excluded with /AGENTS.md in the shared Git info/exclude. Its instructions must be present in each new checkout. Exclusions propagate across worktrees; file contents do not. Do not force-add it. This checkout lives in temporary storage: published refs and this maintenance branch preserve Git work, but local remotes, excludes, and agent instructions need recreation if the checkout is replaced.
+AGENTS.md is intentionally untracked and excluded by /AGENTS.md in the shared Git info/exclude. Copy it into each new checkout/worktree if absent; exclusions propagate across worktrees, file contents do not. Do not force-add it. Published refs preserve Git work, while local configuration, excludes, and instructions must be recreated if a checkout is replaced.
