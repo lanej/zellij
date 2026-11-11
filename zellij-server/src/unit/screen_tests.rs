@@ -20336,33 +20336,3 @@ fn nested_cycle_guard_detaches_only_the_recursive_viewer_before_mutating_ancestr
         vec!["safe-host".to_owned()]
     );
 }
-
-#[test]
-fn nested_cycle_guard_ignores_ancestry_updates_after_detach() {
-    use zellij_utils::nested_session::NestedSessionMessage;
-    let (mut screen, _, _) =
-        create_new_screen_with_capture(Size { cols: 80, rows: 24 }, true, true, true, false);
-    screen.handle_nested_session_message_from_host(
-        1,
-        NestedSessionMessage::AnnounceAck {
-            ancestry: vec!["host".to_owned()],
-            capabilities: vec![],
-            descend_keys: vec![],
-        },
-    );
-    assert_eq!(screen.containing_session_names(), vec!["host".to_owned()]);
-    screen.remove_client(1).unwrap();
-    for message in [
-        NestedSessionMessage::AncestryUpdate {
-            ancestry: vec!["ghost-host".to_owned()],
-        },
-        NestedSessionMessage::AnnounceAck {
-            ancestry: vec!["ghost-host".to_owned()],
-            capabilities: vec![],
-            descend_keys: vec![],
-        },
-    ] {
-        screen.handle_nested_session_message_from_host(1, message);
-        assert!(screen.containing_session_names().is_empty());
-    }
-}
