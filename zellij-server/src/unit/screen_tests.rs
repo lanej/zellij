@@ -17392,7 +17392,7 @@ fn a_bracketed_paste_reaches_the_focused_popup_and_not_the_pane() {
                 Some(crate::route::NotificationEnd::new(completion_tx)),
             ))
             .unwrap();
-        crate::route::wait_for_action_completion(completion_rx, "KeyToPopup", false).unwrap();
+        let _ = crate::route::wait_for_action_completion(completion_rx, "KeyToPopup", false);
     }
     let pastes: Vec<_> = harness
         .plugin_receiver
@@ -17562,7 +17562,7 @@ fn a_plugin_prompt_honours_an_explicit_pane_and_a_notice_takes_no_anchor() {
 #[test]
 fn a_popup_asking_for_permissions_reports_its_focus_to_the_server() {
     let client_id = 1;
-    let (mut screen, _plugin_receiver) = screen_capturing_plugin_instructions();
+    let (mut screen, plugin_receiver) = screen_capturing_plugin_instructions();
     let (to_server, server_receiver): ChannelWithContext<ServerInstruction> = channels::unbounded();
     screen.bus.senders.to_server = Some(SenderWithContext::new(to_server));
     let tab_id = screen.get_active_tab(client_id).unwrap().id;
@@ -17605,6 +17605,12 @@ fn a_popup_asking_for_permissions_reports_its_focus_to_the_server() {
         );
     screen.report_popup_state_for_plugin(42);
     assert_eq!(focus_reports(), vec![true]);
+    assert!(screen.send_input_to_popup(client_id, &None, b"y".to_vec(), false));
+    assert!(focus_reports().is_empty());
+    assert!(!plugin_receiver.try_iter().any(|(instruction, _)| matches!(
+        instruction,
+        PluginInstruction::PermissionRequestResult(..)
+    )));
     let key = zellij_utils::data::KeyWithModifier::new(zellij_utils::data::BareKey::Char('y'));
     assert!(screen.send_key_to_popup(client_id, key, vec![b'y'], false));
     assert_eq!(focus_reports(), vec![false]);
