@@ -865,6 +865,7 @@ fn host_run_plugin_command(mut caller: Caller<'_, PluginEnv>) {
                     PluginCommand::SaveKeybindsAsPreset { new_name } => {
                         save_keybinds_as_preset(env, new_name)
                     },
+                    PluginCommand::CopyMode(request) => copy_mode(env, request),
                     PluginCommand::Prompt {
                         request_id,
                         request,
@@ -6573,9 +6574,10 @@ fn clear_key_presses_intercepts(env: &mut PluginEnv) {
     env.intercepting_key_presses = false;
     let _ = env
         .senders
-        .send_to_screen(ScreenInstruction::ClearKeyPressesIntercepts(acting_client(
-            env,
-        )));
+        .send_to_screen(ScreenInstruction::ClearKeyPressesIntercepts(
+            acting_client(env),
+            env.plugin_id,
+        ));
 }
 
 fn replace_pane_with_existing_pane(
@@ -6976,6 +6978,13 @@ fn required_permission(command: &PluginCommand) -> Option<PermissionType> {
         PluginCommand::InterceptKeyPresses | PluginCommand::ClearKeyPressesIntercepts => {
             PermissionType::InterceptInput
         },
+        PluginCommand::CopyMode(request) => {
+            use zellij_utils::plugin_api::generated_api::api::copy_mode::request::Operation;
+            match request.operation {
+                Some(Operation::Read(_)) => PermissionType::ReadPaneContents,
+                _ => PermissionType::ChangeApplicationState,
+            }
+        },
         PluginCommand::GetPaneScrollback { .. } => PermissionType::ReadPaneContents,
         PluginCommand::RunAction(..) => PermissionType::RunActionsAsUser,
         PluginCommand::GetSessionEnvironmentVariables => {
@@ -7098,4 +7107,34 @@ fn set_live_view_input(env: &PluginEnv, capture: bool) {
             client_id: acting_client(env),
             capture,
         });
+}
+
+fn copy_mode(
+    env: &PluginEnv,
+    request: zellij_utils::plugin_api::generated_api::api::copy_mode::Request,
+) {
+    use zellij_utils::plugin_api::generated_api::api::copy_mode::Response;
+    let (response, receiver) = crossbeam::channel::bounded(1);
+    let sent = env
+        .senders
+        .send_to_screen(ScreenInstruction::CopyModePlugin {
+            request,
+            client_id: acting_client(env),
+            plugin_id: env.plugin_id,
+            response,
+        });
+    let reply = if sent.is_err() {
+        Response {
+            snapshot: None,
+            error: Some("Screen unavailable".into()),
+        }
+    } else {
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap_or_else(|_| Response {
+                snapshot: None,
+                error: Some("Copy mode request timed out; outcome unknown".into()),
+            })
+    };
+    let _ = wasi_write_object(env, &reply.encode_to_vec());
 }

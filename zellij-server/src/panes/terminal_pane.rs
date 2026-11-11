@@ -9,6 +9,7 @@ use crate::panes::{
     nested_session_modal::GuestModalShortcuts,
     terminal_character::{render_first_run_banner, TerminalCharacter, EMPTY_TERMINAL_CHARACTER},
 };
+use crate::plugins::PluginId;
 use crate::pty::VteBytes;
 use crate::route::NotificationEnd;
 use crate::tab::{AdjustedInput, GuestChoiceIndicator, Pane};
@@ -536,7 +537,11 @@ impl Pane for TerminalPane {
             }
             let full_redraw = self.grid.will_render_all_lines();
             match self.grid.render(content_x, content_y, &self.style) {
-                Ok(rendered_assets) => {
+                Ok(mut rendered_assets) => {
+                    if let Some((chunks, _, _, _)) = rendered_assets.as_mut() {
+                        self.grid
+                            .apply_copy_mode_labels(chunks, content_x, content_y, &self.style);
+                    }
                     if rendered_assets.is_some() {
                         self.set_should_render(false);
                     }
@@ -831,6 +836,23 @@ impl Pane for TerminalPane {
     }
     fn end_copy_mode(&mut self, client_id: ClientId) -> bool {
         self.grid.end_copy_mode(client_id)
+    }
+    fn copy_mode_plugin(
+        &mut self,
+        request: zellij_utils::plugin_api::generated_api::api::copy_mode::Request,
+        client_id: ClientId,
+        plugin_id: PluginId,
+    ) -> std::result::Result<
+        Option<zellij_utils::plugin_api::generated_api::api::copy_mode::Snapshot>,
+        String,
+    > {
+        self.grid.copy_mode_plugin(request, client_id, plugin_id)
+    }
+    fn copy_mode_session_id(&self, client_id: ClientId) -> Option<u64> {
+        self.grid.copy_mode_session_id(client_id)
+    }
+    fn clear_copy_mode_labels(&mut self, plugin_id: PluginId, client_id: ClientId) {
+        self.grid.clear_copy_mode_labels(plugin_id, client_id);
     }
     fn copy_mode_input(
         &mut self,

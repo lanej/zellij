@@ -2963,6 +2963,10 @@ impl TryFrom<ProtobufPluginCommand> for PluginCommand {
                 },
                 _ => Err("Mismatched payload for DeleteThemeFile"),
             },
+            Some(CommandName::CopyMode) => match protobuf_plugin_command.payload {
+                Some(Payload::CopyModePayload(request)) => Ok(PluginCommand::CopyMode(request)),
+                _ => Err("Mismatched payload for CopyMode"),
+            },
             Some(CommandName::Prompt) => match protobuf_plugin_command.payload {
                 Some(Payload::PromptPayload(payload)) => Ok(PluginCommand::Prompt {
                     request_id: payload.request_id,
@@ -4960,6 +4964,10 @@ impl TryFrom<PluginCommand> for ProtobufPluginCommand {
             PluginCommand::ReplaceConfigBlocks(blocks) => Ok(ProtobufPluginCommand {
                 name: CommandName::ReplaceConfigBlocks as i32,
                 payload: Some(Payload::ReplaceConfigBlocksPayload(blocks)),
+            }),
+            PluginCommand::CopyMode(request) => Ok(ProtobufPluginCommand {
+                name: CommandName::CopyMode as i32,
+                payload: Some(Payload::CopyModePayload(request)),
             }),
             PluginCommand::Prompt {
                 request_id,

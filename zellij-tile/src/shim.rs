@@ -3700,3 +3700,21 @@ mod tests {
         assert_eq!(results[3], Ok(vec![3]));
     }
 }
+
+/// Read or control the acting client's active native copy session.
+/// Reads require ReadPaneContents; mutations require ChangeApplicationState.
+/// Coordinates and tokens come from Read. Expired tokens fail without changing selection.
+pub fn copy_mode(
+    request: zellij_utils::plugin_api::generated_api::api::copy_mode::Request,
+) -> Result<Option<zellij_utils::plugin_api::generated_api::api::copy_mode::Snapshot>, String> {
+    use zellij_utils::plugin_api::generated_api::api::copy_mode::Response;
+    let command: ProtobufPluginCommand = PluginCommand::CopyMode(request).try_into().unwrap();
+    object_to_stdout(&command.encode_to_vec());
+    unsafe { host_run_plugin_command() };
+    let bytes = bytes_from_stdin().map_err(|e| e.to_string())?;
+    let response = Response::decode(bytes.as_slice()).map_err(|e| e.to_string())?;
+    match response.error {
+        Some(error) => Err(error),
+        None => Ok(response.snapshot),
+    }
+}

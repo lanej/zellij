@@ -476,6 +476,21 @@ pub trait Pane {
     ) -> crate::panes::copy_mode::CopyModeResult {
         crate::panes::copy_mode::CopyModeResult::Exit
     }
+    fn copy_mode_plugin(
+        &mut self,
+        _request: zellij_utils::plugin_api::generated_api::api::copy_mode::Request,
+        _client_id: ClientId,
+        _plugin_id: PluginId,
+    ) -> std::result::Result<
+        Option<zellij_utils::plugin_api::generated_api::api::copy_mode::Snapshot>,
+        String,
+    > {
+        Err("Pane does not support native copy".into())
+    }
+    fn clear_copy_mode_labels(&mut self, _plugin_id: PluginId, _client_id: ClientId) {}
+    fn copy_mode_session_id(&self, _client_id: ClientId) -> Option<u64> {
+        None
+    }
     fn copy_last_command_output(&mut self) -> Option<String> {
         None
     }
@@ -7222,6 +7237,36 @@ impl Tab {
             self.process_pending_vte_events(id)?;
         }
         Ok(())
+    }
+
+    pub fn copy_mode_plugin(
+        &mut self,
+        request: zellij_utils::plugin_api::generated_api::api::copy_mode::Request,
+        client_id: ClientId,
+        plugin_id: PluginId,
+    ) -> std::result::Result<
+        Option<zellij_utils::plugin_api::generated_api::api::copy_mode::Snapshot>,
+        String,
+    > {
+        self.get_active_pane_or_floating_pane_mut(client_id)
+            .ok_or("No active pane")?
+            .copy_mode_plugin(request, client_id, plugin_id)
+    }
+
+    pub fn copy_mode_session_id(&mut self, client_id: ClientId) -> Option<u64> {
+        self.get_active_pane_or_floating_pane_mut(client_id)
+            .and_then(|pane| pane.copy_mode_session_id(client_id))
+    }
+
+    pub fn clear_copy_mode_labels(&mut self, plugin_id: PluginId, client_id: ClientId) {
+        for pane_id in self.get_static_and_floating_pane_ids() {
+            if let Some(pane) = self.get_pane_with_id_mut(pane_id) {
+                pane.clear_copy_mode_labels(plugin_id, client_id);
+            }
+        }
+        for (_, pane) in self.suppressed_panes.values_mut() {
+            pane.clear_copy_mode_labels(plugin_id, client_id);
+        }
     }
 
     pub fn copy_mode_input(&mut self, key: &str, client_id: ClientId) -> Result<bool> {
