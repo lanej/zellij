@@ -13,10 +13,15 @@ permissions:
 jobs:
   native-regressions:
     if: github.repository == 'lanej/zellij'
+    name: native-regressions (${{ matrix.check_name }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15-intel]
+        include:
+          - os: ubuntu-24.04
+            check_name: ubuntu-latest
+          - os: macos-15-intel
+            check_name: macos-latest
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     defaults:
