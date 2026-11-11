@@ -11489,6 +11489,19 @@ pub(crate) fn screen_thread_main(
                     screen.render(None)?;
                     continue;
                 }
+                // Paste arrives as WriteCharacter bytes, bypassing the key route.
+                // A focused popup owns this input before pane sync or mode edits.
+                if screen.client_has_focused_popup(client_id)
+                    && screen.send_input_to_popup(
+                        client_id,
+                        &key_with_modifier,
+                        raw_bytes.clone(),
+                        is_kitty_keyboard_protocol,
+                    )
+                {
+                    screen.render(None)?;
+                    continue;
+                }
                 let mut state_changed = false;
                 let client_input_mode = screen.get_client_input_mode(client_id);
                 match client_input_mode {
