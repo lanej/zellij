@@ -54,6 +54,10 @@ jobs:
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
             --target "$host" dotfiles_
           rustup run 1.95.0 cargo test --locked --release \
+            -p zellij-server --lib --no-default-features \
+            --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
+            --target "$host" nested_
+          rustup run 1.95.0 cargo test --locked --release \
             -p zellij-server -p zellij-utils --lib --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
             --target "$host" scroll_indicator
