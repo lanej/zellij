@@ -296,6 +296,12 @@ impl TryFrom<ProtobufAction> for Action {
                     None => Ok(Action::ScrollToNextPrompt),
                 }
             },
+            Some(ProtobufActionName::CopyModeInput) => match protobuf_action.optional_payload {
+                Some(OptionalPayload::CopyModeInputPayload(key)) => {
+                    Ok(Action::CopyModeInput { key })
+                },
+                _ => Err("CopyModeInput requires a key"),
+            },
             Some(ProtobufActionName::SelectCommandAtScrollPosition) => {
                 match protobuf_action.optional_payload {
                     Some(_) => Err("SelectCommandAtScrollPosition should not have a payload"),
@@ -1745,6 +1751,10 @@ impl TryFrom<Action> for ProtobufAction {
             Action::ScrollToNextPrompt => Ok(ProtobufAction {
                 name: ProtobufActionName::ScrollToNextPrompt as i32,
                 optional_payload: None,
+            }),
+            Action::CopyModeInput { key } => Ok(ProtobufAction {
+                name: ProtobufActionName::CopyModeInput as i32,
+                optional_payload: Some(OptionalPayload::CopyModeInputPayload(key)),
             }),
             Action::SelectCommandAtScrollPosition => Ok(ProtobufAction {
                 name: ProtobufActionName::SelectCommandAtScrollPosition as i32,
@@ -4266,6 +4276,28 @@ mod tests {
             Action::try_from(protobuf).unwrap(),
             Action::ToggleSessionCard
         );
+    }
+
+    #[test]
+    fn keyboard_copy_plugin_contract() {
+        for original in [
+            Action::CopyModeInput {
+                key: "Ctrl b".to_owned(),
+            },
+            Action::SwitchToMode {
+                input_mode: InputMode::Copy,
+            },
+        ] {
+            let encoded: ProtobufAction = original.clone().try_into().expect("encode");
+            let decoded: Action = encoded.try_into().expect("decode");
+            assert_eq!(original, decoded);
+            let kdl = original.to_kdl().expect("serialize keybind");
+            assert_eq!(
+                Action::try_from((&kdl, &crate::input::options::Options::default()))
+                    .expect("parse keybind"),
+                original
+            );
+        }
     }
 
     #[test]

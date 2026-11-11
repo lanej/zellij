@@ -278,6 +278,7 @@ pub enum ScreenContext {
     ScrollToTop,
     ScrollToPreviousPrompt,
     ScrollToNextPrompt,
+    CopyModeInput,
     SelectCommandAtScrollPosition,
     CopyLastCommandOutput,
     ClearCommandOutputFlash,
