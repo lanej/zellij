@@ -715,7 +715,8 @@ impl KeybindProcessor {
             | InputMode::RenamePane
             | InputMode::RenameSession
             | InputMode::Prompt
-            | InputMode::Tmux => Vec::new(),
+            | InputMode::Tmux
+            | InputMode::Copy => Vec::new(),
         }
     }
 }

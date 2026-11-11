@@ -330,7 +330,14 @@ impl Pane for TerminalPane {
         }
         let Offset { top, left, .. } = self.content_offset;
         self.grid
-            .cursor_coordinates()
+            .copy_mode_cursor(client_id)
+            .or_else(|| {
+                if self.grid.copy_mode.is_some() {
+                    None
+                } else {
+                    self.grid.cursor_coordinates()
+                }
+            })
             .filter(|(x, y, _)| self.cursor_is_in_the_visible_area(*x, *y))
             .map(|(x, y, is_visible)| (x + left, y + top, is_visible))
     }
@@ -561,7 +568,8 @@ impl Pane for TerminalPane {
     ) -> Result<Option<(Vec<CharacterChunk>, Option<String>)>> {
         let err_context = || format!("failed to render frame for client {client_id}");
         frame_params.omit_title = frame_params.omit_title
-            && !(input_mode == InputMode::RenamePane && frame_params.is_main_client);
+            && !(matches!(input_mode, InputMode::RenamePane | InputMode::Copy)
+                && frame_params.is_main_client);
         // TODO: remove the cursor stuff from here
         let normal_title = if self.pane_name.is_empty()
             && input_mode == InputMode::RenamePane
@@ -619,6 +627,12 @@ impl Pane for TerminalPane {
             self.title_with_bell_indicator(normal_title)
         };
 
+        let pane_title = self
+            .grid
+            .copy_mode
+            .as_ref()
+            .map(|mode| format!("{} — {}", mode.label(), pane_title))
+            .unwrap_or(pane_title);
         let frame_geom = frame_params
             .frame_geom_override
             .unwrap_or_else(|| self.current_geom());
@@ -812,6 +826,19 @@ impl Pane for TerminalPane {
             self.set_should_render(true);
         }
     }
+    fn start_copy_mode(&mut self, client_id: ClientId) -> bool {
+        self.grid.start_copy_mode(client_id)
+    }
+    fn end_copy_mode(&mut self, client_id: ClientId) -> bool {
+        self.grid.end_copy_mode(client_id)
+    }
+    fn copy_mode_input(
+        &mut self,
+        key: &str,
+        client_id: ClientId,
+    ) -> crate::panes::copy_mode::CopyModeResult {
+        self.grid.copy_mode_input(key, client_id)
+    }
     fn copy_last_command_output(&mut self) -> Option<String> {
         let (output, start, end) = self.grid.last_completed_command_output()?;
         self.grid.set_command_output_flash(start, end);
@@ -828,7 +855,7 @@ impl Pane for TerminalPane {
         self.set_should_render(true);
     }
     fn is_scrolled(&self) -> bool {
-        self.grid.is_scrolled
+        self.grid.is_scrolled || self.grid.copy_mode.is_some()
     }
 
     fn active_at(&self) -> Instant {
@@ -1048,7 +1075,11 @@ impl Pane for TerminalPane {
     }
 
     fn get_selected_text(&self, _client_id: ClientId) -> Option<String> {
-        self.grid.get_selected_text()
+        match self.grid.copy_mode.as_ref() {
+            Some(mode) if mode.owner == _client_id => mode.selected_text(self.grid.width),
+            Some(_) => None,
+            None => self.grid.get_selected_text(),
+        }
     }
 
     fn set_frame(&mut self, _frame: bool) {

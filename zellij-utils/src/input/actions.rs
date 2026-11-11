@@ -255,6 +255,9 @@ pub enum Action {
     },
     ScrollToPreviousPrompt,
     ScrollToNextPrompt,
+    CopyModeInput {
+        key: String,
+    },
     SelectCommandAtScrollPosition,
     CopyLastCommandOutput,
     /// Scroll down to bottom in focus pane.

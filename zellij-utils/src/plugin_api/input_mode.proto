@@ -38,4 +38,5 @@ enum InputMode {
     /// `Tmux` mode allows for basic tmux keybindings functionality
     Tmux = 13;
     RenameSession = 14;
+    Copy = 15;
 }

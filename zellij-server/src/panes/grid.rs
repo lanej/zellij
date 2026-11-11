@@ -974,6 +974,7 @@ pub struct Grid {
     pub height: usize,
     pub pending_messages_to_pty: Vec<Vec<u8>>,
     pub selection: Selection,
+    pub(crate) copy_mode: Option<super::copy_mode::CopyMode>,
     pub title: Option<String>,
     pub is_scrolled: bool,
     pub link_handler: Rc<RefCell<LinkHandler>>,
@@ -1369,6 +1370,7 @@ impl Grid {
             terminal_emulator_color_codes,
             output_buffer: Default::default(),
             selection: Default::default(),
+            copy_mode: None,
             title_stack: vec![],
             title: None,
             changed_colors: None,
@@ -1741,6 +1743,9 @@ impl Grid {
     }
 
     pub fn scroll_up_one_line(&mut self) -> bool {
+        if self.copy_mode.is_some() {
+            return false;
+        }
         let mut found_something = false;
         if !self.lines_above.is_empty() && self.viewport.len() == self.height {
             self.is_scrolled = true;
@@ -1771,6 +1776,9 @@ impl Grid {
         found_something
     }
     pub fn scroll_down_one_line(&mut self) -> bool {
+        if self.copy_mode.is_some() {
+            return false;
+        }
         let mut found_something = false;
         if !self.lines_below.is_empty()
             && self.viewport.len() == self.height
@@ -1847,6 +1855,12 @@ impl Grid {
         // Do nothing if this pane hasn't been given a proper size yet
         if new_columns == 0 || new_rows == 0 {
             return;
+        }
+        if new_rows != self.height || new_columns != self.width || force_rewrap {
+            if let Some(mode) = self.copy_mode.as_mut() {
+                mode.invalidate();
+            }
+            self.reset_selection();
         }
         self.invalidate_scroll_offset();
         if self.alternate_screen_state.is_some() {
@@ -2450,6 +2464,9 @@ impl Grid {
         self.output_buffer.update_all_lines();
     }
     pub fn reset_viewport(&mut self) {
+        if self.copy_mode.take().is_some() {
+            self.reset_selection();
+        }
         let max_lines_to_scroll = *SCROLL_BUFFER_SIZE.get().unwrap() * 2; // while not very elegant, this can prevent minor bugs from becoming showstoppers by sticking the whole app display in an endless loop
         let mut lines_scrolled = 0;
         let should_clear_output_buffer = self.is_scrolled;
@@ -3545,6 +3562,9 @@ impl Grid {
     }
 
     pub fn start_selection(&mut self, start: &Position) {
+        if self.copy_mode.is_some() {
+            return;
+        }
         let old_selection = self.selection;
         self.click.record_click(*start);
 
@@ -3583,6 +3603,9 @@ impl Grid {
         self.mark_for_rerender();
     }
     pub fn update_selection(&mut self, to: &Position) {
+        if self.copy_mode.is_some() {
+            return;
+        }
         let old_selection = self.selection;
         if &old_selection.end != to {
             if self.click.is_double_click() {
@@ -3614,6 +3637,9 @@ impl Grid {
     }
 
     pub fn end_selection(&mut self, end: &Position) {
+        if self.copy_mode.is_some() {
+            return;
+        }
         if !self.click.is_double_click() && !self.click.is_triple_click() {
             let old_selection = self.selection;
             self.selection.end(*end);

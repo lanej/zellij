@@ -532,7 +532,9 @@ fn get_key_shortcut_for_mode<'a>(
         InputMode::Tab | InputMode::RenameTab => KeyAction::Tab,
         InputMode::Resize => KeyAction::Resize,
         InputMode::Move => KeyAction::Move,
-        InputMode::Scroll | InputMode::Search | InputMode::EnterSearch => KeyAction::Search,
+        InputMode::Scroll | InputMode::Search | InputMode::EnterSearch | InputMode::Copy => {
+            KeyAction::Search
+        },
         InputMode::Session | InputMode::RenameSession => KeyAction::Session,
     };
     for shortcut in shortcuts.iter_mut() {

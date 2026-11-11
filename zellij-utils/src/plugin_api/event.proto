@@ -882,6 +882,7 @@ message ModeUpdatePayload {
   repeated string nested_descend_keys = 22;
   optional string remote_client = 23;
   repeated string hidden_bars = 24;
+  bool copy_mode_active = 25;
 }
 
 enum WebSharing {

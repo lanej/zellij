@@ -357,6 +357,7 @@ message Action {
     ShowBarsAction show_bars = 191;
     HideBarByPaneIdAction hide_bar_by_pane_id = 192;
     PasteFromClipboardByPaneIdAction paste_from_clipboard_by_pane_id = 193;
+    CopyModeInputAction copy_mode_input = 194;
   }
 }
 
@@ -384,6 +385,7 @@ message ScrollToBottomAction {}
 message ScrollToTopAction {}
 message ScrollToPreviousPromptAction {}
 message ScrollToNextPromptAction {}
+message CopyModeInputAction { string key = 1; }
 message SelectCommandAtScrollPositionAction {}
 message CopyLastCommandOutputAction {}
 message PageScrollUpAction {}
@@ -885,6 +887,7 @@ enum InputMode {
   INPUT_MODE_PROMPT = 13;
   INPUT_MODE_TMUX = 14;
   INPUT_MODE_RENAME_SESSION = 15;
+  INPUT_MODE_COPY = 16;
 }
 
 enum Direction {
