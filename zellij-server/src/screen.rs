@@ -2177,7 +2177,6 @@ pub(crate) struct Screen {
     nested_guest_tracker: NestedGuestTracker,
     nested_ancestry: Vec<String>,
     client_nested_ancestries: BTreeMap<ClientId, Vec<String>>,
-    retired_nested_clients: HashSet<ClientId>,
     nested_via_client_id: Option<ClientId>,
     nested_fullscreen_panes: HashSet<PaneId>,
     own_fullscreen_requested: bool,
@@ -2555,7 +2554,6 @@ impl Screen {
             nested_guest_tracker: NestedGuestTracker::default(),
             nested_ancestry: vec![],
             client_nested_ancestries: BTreeMap::new(),
-            retired_nested_clients: HashSet::new(),
             nested_via_client_id: None,
             nested_fullscreen_panes: HashSet::new(),
             own_fullscreen_requested: false,
@@ -5685,9 +5683,6 @@ impl Screen {
         client_id: ClientId,
         message: NestedSessionMessage,
     ) {
-        if self.retired_nested_clients.contains(&client_id) {
-            return;
-        }
         if let NestedSessionMessage::AnnounceAck { ref ancestry, .. }
         | NestedSessionMessage::AncestryUpdate { ref ancestry } = message
         {
@@ -7131,7 +7126,6 @@ impl Screen {
         self.pending_keybinds_requests.retain(|_, pending| {
             !matches!(pending.reply_to, KeybindsReplyTo::Host { client_id: host_client_id, .. } if host_client_id == client_id)
         });
-        self.retired_nested_clients.insert(client_id);
         let removed_ancestry = self.client_nested_ancestries.remove(&client_id).is_some();
         if self.nested_via_client_id == Some(client_id) {
             self.host_capabilities = vec![];
