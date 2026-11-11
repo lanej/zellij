@@ -1,0 +1,107 @@
+schema_version = 1
+updated = "2026-11-11"
+upstream_base = "c8585459c37186fae1321727ad8dd4c96480ef41"
+runtime = "5f8dd464fc97a0bb77feaaec617f0ac3f8cd5026"
+ci_green_fallback = "aa8b83d76ebf5163f68188bd3a4630b62b251d03"
+runtime_ci = "https://github.com/lanej/zellij/actions/runs/43044691280"
+fallback_ci = "https://github.com/lanej/zellij/actions/runs/42543514823"
+
+[[topics]]
+branch = "fix/upstream-cli-completion"
+head = "21f85437aaa843b174d564e716b7a9460a89d8e5"
+state = "prepared-unvalidated"
+base = "upstream/main"
+dependencies = []
+source_commits = ["8072318b"]
+checks = ["diff-check", "rustfmt"]
+
+[[topics]]
+branch = "fix/upstream-shutdown-flush"
+head = "de35179804323170d4c6020c30652d9164c3ce2e"
+state = "prepared-unvalidated"
+base = "upstream/main"
+dependencies = []
+source_commits = ["18be8a2a"]
+checks = ["diff-check", "rustfmt"]
+
+[[topics]]
+branch = "fix/upstream-atomic-permission-cache"
+head = "6d96afb7dd8ac3e4564f12e5ab98449fa83de059"
+state = "prepared-unvalidated"
+base = "upstream/main"
+dependencies = []
+source_commits = ["315e27e1"]
+checks = ["diff-check", "rustfmt"]
+
+[[topics]]
+branch = "fix/upstream-plugin-unicode"
+head = "1423183b6544e5c5e3e55d1c7e577353f5a68581"
+state = "prepared-unvalidated"
+base = "upstream/main"
+dependencies = []
+source_commits = ["876c9e05"]
+checks = ["diff-check", "rustfmt"]
+
+[[topics]]
+branch = "fix/upstream-popup-input"
+head = "99e7614ceade0353ee53dd688ff524936528df3a"
+state = "prepared-unvalidated"
+base = "upstream/main"
+dependencies = []
+source_commits = ["876c9e05", "7d738ed5"]
+checks = ["diff-check", "rustfmt"]
+
+[[topics]]
+branch = "fix/upstream-manager-help"
+head = "e34e83220fd77db211559e6b665ca3faf3444c38"
+state = "prepared-unvalidated"
+base = "upstream/main"
+dependencies = []
+source_commits = ["c1d81ae1"]
+checks = ["diff-check", "rustfmt"]
+
+[[topics]]
+branch = "fix/pending-initial-client"
+head = "dfc4f414c1a9386b07911ebd3cfb4e7aaa4289f5"
+state = "fork-only-needs-adaptation"
+base = "lanej-runtime"
+dependencies = []
+blocker = "screen.rs conflicts with upstream; reproduce against current main before porting."
+
+[[topics]]
+branch = "fix/nested-session-cycles"
+head = "71d61495d29713a3ed02f16acacf245c01a8a694"
+state = "fork-only-needs-adaptation"
+base = "lanej-runtime"
+dependencies = []
+blocker = "Server tests overlap runtime-only client-registration and shutdown work; extract the prerequisite test setup before adapting."
+
+[[topics]]
+branch = "fix/hide-scroll-label"
+head = "744c99f5a3a51682553897411d1a891dac04d886"
+state = "fork-only-needs-adaptation"
+base = "lanej-runtime"
+dependencies = []
+blocker = "Configuration protobufs, tab tests and snapshots conflict; reconcile field numbers and regenerate assets rather than taking fork-generated files wholesale."
+
+[[topics]]
+branch = "feature/keyboard-copy-mode"
+head = "9ddbb996b36b38b321182d82d1002ad6312a09bf"
+state = "fork-only-needs-adaptation"
+base = "lanej-runtime"
+dependencies = []
+blocker = "Protocol/action changes, tab/grid tests and config snapshots overlap fork work; reconcile wire identifiers and regenerate snapshots on an upstream base."
+
+[[topics]]
+branch = "codex/copy-mode-hop-plugin"
+head = "7c5c8357bc04858267c48dc0ec94da10b87944de"
+state = "fork-only-needs-adaptation"
+base = "lanej-runtime"
+dependencies = ["feature/keyboard-copy-mode"]
+blocker = "Requires keyboard copy mode; split native plugin controls (64fd2d37) from the Hop plugin (7c5c8357) after preparing that prerequisite."
+
+[[topics]]
+branch = "feat/compact-agent-pane-titles"
+head = "51fa87f0fb2a357a5d2c7f62224b945e9dbec69f"
+state = "closed-preserved"
+note = "Fork PR #2 was closed; not selected for integration or upstream preparation."

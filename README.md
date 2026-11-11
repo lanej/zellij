@@ -1,3 +1,5 @@
+> Lanej fork maintenance: see [docs/FORK.md](docs/FORK.md) and [fork/topics.toml](fork/topics.toml). This branch holds fork operating notes; main remains a clean upstream mirror.
+
 <h1 align="center">
   <br>
   <img src="https://raw.githubusercontent.com/zellij-org/zellij/main/assets/logo.png" alt="logo" width="200">
