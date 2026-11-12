@@ -73,6 +73,8 @@ Options {
     post_command_discovery_hook: None,
     client_async_worker_tasks: None,
     nested_session_handling: None,
+    allow_nested_sessions: None,
+    allow_cyclic_sessions: None,
     dangerously_enable_paste_buffer_read: None,
     session_indicator: None,
     swap_layout_notification: None,
