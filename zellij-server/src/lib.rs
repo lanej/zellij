@@ -10,6 +10,7 @@ pub mod os_input_output;
 pub mod output;
 pub mod panes;
 pub mod tab;
+pub mod vt_parser;
 
 pub mod attention;
 pub mod background_jobs;
@@ -102,7 +103,8 @@ use zellij_utils::{
         theme::{Theme, Themes},
     },
     ipc::{
-        ClientAttributes, ClientToServerMsg, ExitReason, IpcReceiverWithContext, ServerToClientMsg,
+        ClientAttributes, ClientToServerMsg, ExitReason, IpcReceiveError, IpcReceiverWithContext,
+        ServerToClientMsg,
     },
     shared::web_server_base_url,
 };
@@ -111,9 +113,11 @@ pub use zellij_utils::data::ClientId;
 
 pub(crate) type SharedKeybinds = Arc<zellij_utils::data::KeybindsVec>;
 
+#[cfg(not(windows))]
 const ACCEPT_ERROR_BACKOFF: std::time::Duration = std::time::Duration::from_millis(100);
 
 const PRE_HANDSHAKE_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const UNREADABLE_FIRST_MESSAGE_ERROR: &str = "This session could not read the request. It may be running a different version of Zellij that does not support it.";
 
 /// Instructions related to server-side application
 #[derive(Debug, Clone)]
@@ -1159,29 +1163,6 @@ impl SessionMetaData {
             _ => None,
         }
     }
-    pub fn live_view_release_keys(&self, client_id: &ClientId) -> Vec<KeyWithModifier> {
-        self.get_client_keybinds_and_mode(client_id)
-            .and_then(|(keybinds, mode, _)| keybinds.0.get(mode))
-            .map(|bindings| crate::pane_mirror::live_view::keys_bound_to_the_inbox(bindings))
-            .unwrap_or_default()
-    }
-    pub fn publish_live_view_release_keys(&self) {
-        let bound_keys: BTreeMap<ClientId, Vec<KeyWithModifier>> = self
-            .current_input_modes
-            .keys()
-            .map(|client_id| (*client_id, self.live_view_release_keys(client_id)))
-            .collect();
-        let changed = self
-            .live_view_captures
-            .lock()
-            .map(|mut captures| captures.publish_bound_keys(bound_keys))
-            .unwrap_or(false);
-        if changed {
-            let _ = self
-                .senders
-                .send_to_screen(ScreenInstruction::LiveViewReleaseKeysChanged);
-        }
-    }
     pub fn remove_key_passthrough_client(&mut self, client_id: ClientId) {
         self.popup_clients.remove(&client_id);
         self.modal_popup_clients.remove(&client_id);
@@ -1822,6 +1803,10 @@ impl AppliedEnv {
         pane_env
     }
 }
+
+#[cfg(test)]
+#[path = "unit/golden.rs"]
+pub(crate) mod golden;
 
 #[cfg(test)]
 mod env_sync_tests {
@@ -2932,53 +2917,6 @@ theme \"first\"
         );
     }
 
-    fn published_release_keys(config: &str) -> (Vec<KeyWithModifier>, Vec<KeyWithModifier>, bool) {
-        let (session_data, screen_receiver, _plugin_receiver) =
-            test_session(session_configuration_with_one_client(config), None);
-        let session = session_data.read().unwrap();
-        let session = session.as_ref().unwrap();
-        session.publish_live_view_release_keys();
-        let announced = screen_receiver.try_iter().any(|(instruction, _)| {
-            matches!(instruction, ScreenInstruction::LiveViewReleaseKeysChanged)
-        });
-        session.publish_live_view_release_keys();
-        assert!(
-            !screen_receiver.try_iter().any(|(instruction, _)| {
-                matches!(instruction, ScreenInstruction::LiveViewReleaseKeysChanged)
-            }),
-            "unchanged keys are not announced again"
-        );
-        let published = session.live_view_captures.lock().unwrap().bound_keys_of(1);
-        (published, session.live_view_release_keys(&1), announced)
-    }
-
-    #[test]
-    fn the_release_key_hint_comes_from_the_keys_the_route_thread_checks() {
-        use crate::pane_mirror::live_view::release_key_text_for;
-        let (published, checked, announced) = published_release_keys(
-            "keybinds {\n    normal {\n        bind \"Ctrl Alt y\" { ToggleSessionCard; }\n        bind \"Alt i\" { ToggleSessionCard; }\n    }\n}\n",
-        );
-        assert!(announced);
-        assert_eq!(
-            published, checked,
-            "the hint and the route thread use the same keys"
-        );
-        assert_eq!(published.len(), 3);
-        assert_eq!(release_key_text_for(published), "F9");
-        let (published, checked, _) = published_release_keys(
-            "keybinds clear-defaults=true {\n    normal {\n        bind \"Ctrl Alt y\" { ToggleSessionCard; }\n        bind \"Alt i\" { ToggleSessionCard; }\n    }\n}\n",
-        );
-        assert_eq!(published, checked);
-        assert_eq!(release_key_text_for(published), "Alt i");
-        let (published, checked, _) = published_release_keys("keybinds clear-defaults=true {\n}\n");
-        assert!(published.is_empty() && checked.is_empty());
-        assert_eq!(
-            release_key_text_for(published),
-            "F9",
-            "the desktop panel has no bindings and shows F9"
-        );
-    }
-
     fn reconfigure_session(
         session_data: &Arc<RwLock<Option<SessionMetaData>>>,
         client_id: ClientId,
@@ -3396,7 +3334,18 @@ fn handle_new_connection(
     let _ = receiver.set_read_timeout(Some(PRE_HANDSHAKE_READ_TIMEOUT));
     let first_instruction = match receiver.try_recv_client_msg() {
         Ok((instruction, _err_ctx)) => instruction,
-        Err(_) => return Ok(()),
+        Err(IpcReceiveError::Undecodable) => {
+            answer_before_registration(
+                &receiver,
+                #[cfg(windows)]
+                reply_stream,
+                ServerToClientMsg::LogError {
+                    lines: vec![UNREADABLE_FIRST_MESSAGE_ERROR.to_owned()],
+                },
+            );
+            return Ok(());
+        },
+        Err(IpcReceiveError::Disconnected) => return Ok(()),
     };
     let _ = receiver.set_read_timeout(None);
 
@@ -3672,6 +3621,14 @@ impl ServerSocket {
             *path = new_path;
             return Ok(());
         }
+        if cfg!(windows) {
+            // A pipe keeps the name it was created with. Moving only its marker file would list
+            // the session under a name nobody can connect to, so it stays at its old path.
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "a named pipe can't be renamed, so the session keeps its socket",
+            ));
+        }
         let new_ownership = SocketOwnership::acquire(&new_path)?;
         if let Err(e) = std::fs::rename(&*path, &new_path) {
             new_ownership.release();
@@ -3769,6 +3726,23 @@ mod server_socket_tests {
         assert!(zellij_utils::consts::ipc_connect(&path).is_ok());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_renamed_server_keeps_its_pipe_and_marker_where_they_are() {
+        let dir = tempfile::tempdir().unwrap();
+        let old_path = dir.path().join("old-name");
+        let new_path = dir.path().join("new-name");
+        let server = ServerSocket::new(old_path.clone());
+        let _listener = server.bind().unwrap();
+
+        assert!(server.rename(new_path.clone()).is_err());
+
+        assert_eq!(server.path(), old_path);
+        assert!(old_path.exists());
+        assert!(!new_path.exists());
+        assert!(zellij_utils::consts::ipc_connect(&old_path).is_ok());
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_renamed_server_moves_its_socket_and_lock_and_removes_them_on_exit() {
@@ -3835,6 +3809,7 @@ pub fn start_server_impl(
     let _ = thread::Builder::new()
         .name("server_listener".to_string())
         .spawn({
+            #[cfg(not(windows))]
             use interprocess::local_socket::prelude::*;
             #[cfg(unix)]
             use zellij_utils::shared::set_permissions;
@@ -3866,46 +3841,49 @@ pub fn start_server_impl(
                 #[cfg(unix)]
                 drop(set_permissions(&socket_path, 0o1700));
 
-                // On Windows, named pipes are half-duplex, so we need a separate
-                // reply pipe for server→client messages.
-                #[cfg(windows)]
-                let reply_listener = zellij_utils::consts::ipc_bind_reply(&socket_path).unwrap();
+                let route = |stream: interprocess::local_socket::Stream,
+                             #[cfg(windows)] reply_stream: interprocess::local_socket::Stream| {
+                    let os_input = os_input.clone();
+                    let session_data = session_data.clone();
+                    let session_state = session_state.clone();
+                    let to_server = to_server.clone();
+                    let spawn_result = thread::Builder::new()
+                        .name("server_router".to_string())
+                        .spawn(move || {
+                            handle_new_connection(
+                                session_data,
+                                session_state,
+                                os_input,
+                                to_server,
+                                stream,
+                                #[cfg(windows)]
+                                reply_stream,
+                            )
+                            .fatal()
+                        });
+                    if let Err(err) = spawn_result {
+                        log::error!("Failed to spawn router thread: {:?}", err);
+                    }
+                };
 
+                // On Windows, named pipes are half-duplex, so a connection has a separate reply
+                // pipe for server→client messages. Its two pipes are accepted separately and
+                // paired by the client process that connected them.
+                #[cfg(windows)]
+                {
+                    let reply_listener =
+                        zellij_utils::consts::ipc_bind_reply(&socket_path).unwrap();
+                    for (stream, reply_stream) in
+                        zellij_utils::pipe_pairs::accept_pairs(listener, reply_listener)
+                    {
+                        route(stream, reply_stream);
+                    }
+                }
+
+                #[cfg(not(windows))]
                 for stream in listener.incoming() {
                     match stream {
-                        Ok(stream) => {
-                            let os_input = os_input.clone();
-
-                            #[cfg(windows)]
-                            let reply_stream = match reply_listener.accept() {
-                                Ok(reply_stream) => reply_stream,
-                                Err(err) => {
-                                    log::error!("Failed to accept reply connection: {:?}", err);
-                                    continue;
-                                },
-                            };
-
-                            let session_data = session_data.clone();
-                            let session_state = session_state.clone();
-                            let to_server = to_server.clone();
-                            let spawn_result = thread::Builder::new()
-                                .name("server_router".to_string())
-                                .spawn(move || {
-                                    handle_new_connection(
-                                        session_data,
-                                        session_state,
-                                        os_input,
-                                        to_server,
-                                        stream,
-                                        #[cfg(windows)]
-                                        reply_stream,
-                                    )
-                                    .fatal()
-                                });
-                            if let Err(err) = spawn_result {
-                                log::error!("Failed to spawn router thread: {:?}", err);
-                            }
-                        },
+                        Ok(stream) => route(stream),
                         Err(err) => {
                             log::error!("Failed to accept connection: {:?}", err);
                             thread::sleep(ACCEPT_ERROR_BACKOFF);
@@ -3937,9 +3915,6 @@ pub fn start_server_impl(
                     )),
                 );
             }
-        }
-        if let Some(session_data) = session_data.read().unwrap().as_ref() {
-            session_data.publish_live_view_release_keys();
         }
         let (instruction, mut err_ctx) = server_receiver.recv().unwrap();
         err_ctx.add_call(ContextType::IPCServer((&instruction).into()));

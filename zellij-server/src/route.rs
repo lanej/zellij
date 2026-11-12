@@ -850,6 +850,22 @@ fn route_action_with_origin(
                 )))
                 .with_context(err_context)?;
         },
+        Action::ToggleStackListOrientation => {
+            senders
+                .send_to_screen(ScreenInstruction::ToggleStackListOrientation(
+                    client_id,
+                    Some(NotificationEnd::new(completion_tx)),
+                ))
+                .with_context(err_context)?;
+        },
+        Action::ToggleStackListOrientationByPaneId { pane_id } => {
+            senders
+                .send_to_screen(ScreenInstruction::ToggleStackListOrientationWithPaneId(
+                    pane_id.into(),
+                    Some(NotificationEnd::new(completion_tx)),
+                ))
+                .with_context(err_context)?;
+        },
         Action::SetPaneFrameStyle(pane_frame_style) => {
             senders
                 .send_to_screen(ScreenInstruction::SetPaneFrameStyle(
@@ -2665,6 +2681,7 @@ fn route_action_with_origin(
             senders
                 .send_to_screen(ScreenInstruction::TogglePaneEmbedOrFloatingWithPaneId(
                     pane_id.into(),
+                    Some(client_id),
                     Some(NotificationEnd::new(completion_tx)),
                 ))
                 .with_context(err_context)?;
@@ -3008,12 +3025,16 @@ pub(crate) fn route_thread_main(
                                 )
                                 .with_context(err_context)?;
                             },
-                            ClientToServerMsg::StructuredRenderSupport { supported } => {
+                            ClientToServerMsg::StructuredRenderSupport {
+                                supported,
+                                row_shifts,
+                            } => {
                                 send_to_screen_or_retry_queue!(
                                     senders,
                                     ScreenInstruction::SetStructuredRenderSupport {
                                         client_id,
                                         supported: *supported,
+                                        row_shifts: *row_shifts,
                                     },
                                     instruction.clone(),
                                     retry_queue
@@ -3060,9 +3081,7 @@ pub(crate) fn route_thread_main(
                                     s.live_view_captures
                                         .lock()
                                         .ok()?
-                                        .key_pressed(client_id, &key, || {
-                                            s.live_view_release_keys(&client_id)
-                                        })
+                                        .key_pressed(client_id, &key)
                                         .then(|| s.senders.clone())
                                 });
                             if let Some(senders) = live_view_release {
@@ -3171,7 +3190,7 @@ pub(crate) fn route_thread_main(
                                                 oneshot::channel();
                                             let _ = senders.send_to_screen(
                                                 ScreenInstruction::KeyToPopup(
-                                                    popup_key,
+                                                    Some(popup_key),
                                                     popup_raw_bytes,
                                                     popup_key_is_kitty,
                                                     client_id,
@@ -3269,6 +3288,32 @@ pub(crate) fn route_thread_main(
                                     .map(|s| s.popup_clients.contains(&client_id))
                                     .unwrap_or(false);
                             let action = match action {
+                                // rationale(input): Only interactive writes may be captured by a popup; CLI writes retain their pane target.
+                                Action::Write {
+                                    key_with_modifier,
+                                    bytes,
+                                    is_kitty_keyboard_protocol,
+                                } if popup_has_focus => {
+                                    if let Some(senders) = senders.as_ref() {
+                                        let _ = senders.send_to_plugin(PluginInstruction::Update(
+                                            vec![(None, Some(client_id), Event::InputReceived)],
+                                        ));
+                                        let (completion_tx, completion_rx) = oneshot::channel();
+                                        let _ = senders.send_to_screen(ScreenInstruction::KeyToPopup(
+                                            key_with_modifier,
+                                            bytes,
+                                            is_kitty_keyboard_protocol,
+                                            client_id,
+                                            Some(NotificationEnd::new(completion_tx)),
+                                        ));
+                                        let _ = wait_for_action_completion(
+                                            completion_rx,
+                                            "KeyToPopup",
+                                            false,
+                                        );
+                                    }
+                                    return Ok(should_break);
+                                },
                                 Action::WriteChars { chars } if popup_has_focus => {
                                     if let Some(senders) = senders.as_ref() {
                                         type_into_popup(senders, client_id, &chars);
@@ -3399,12 +3444,16 @@ pub(crate) fn route_thread_main(
                             )
                             .with_context(err_context)?;
                         },
-                        ClientToServerMsg::StructuredRenderSupport { supported } => {
+                        ClientToServerMsg::StructuredRenderSupport {
+                                supported,
+                                row_shifts,
+                            } => {
                             send_to_screen_or_retry_queue!(
                                 senders,
                                 ScreenInstruction::SetStructuredRenderSupport {
                                     client_id,
-                                    supported
+                                    supported,
+                                    row_shifts,
                                 },
                                 instruction,
                                 retry_queue
@@ -4388,7 +4437,7 @@ fn type_into_popup(senders: &ThreadSenders, client_id: ClientId, chars: &str) {
         });
         let (completion_tx, completion_rx) = oneshot::channel();
         let _ = senders.send_to_screen(ScreenInstruction::KeyToPopup(
-            key,
+            Some(key),
             bytes,
             false,
             client_id,

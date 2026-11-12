@@ -67,7 +67,7 @@ use zellij_utils::input::mouse::{MouseEvent, MouseEventType};
 use zellij_utils::input::mousebinds::Mousebinds;
 use zellij_utils::input::options::{
     Clipboard, HostNotificationProtocol, NestedSessionHandling, PaneFrameStyle,
-    DEFAULT_WORD_SEPARATORS,
+    StackListOrientation, DEFAULT_WORD_SEPARATORS,
 };
 use zellij_utils::ipc::{
     ExitReason, MobileActivePanePayload, MobilePanePayload, MobileSessionPayload,
@@ -411,7 +411,7 @@ pub enum ScreenInstruction {
     ), // bool ->
     // is_kitty_keyboard_protocol
     KeyToPopup(
-        KeyWithModifier,
+        Option<KeyWithModifier>,
         Vec<u8>,
         bool,
         ClientId,
@@ -507,6 +507,8 @@ pub enum ScreenInstruction {
     ToggleActiveTerminalFullscreen(ClientId, Option<NotificationEnd>),
     ToggleActiveTerminalNoUiFullscreen(ClientId, Option<NotificationEnd>),
     TogglePaneFrames(Option<NotificationEnd>),
+    ToggleStackListOrientation(ClientId, Option<NotificationEnd>),
+    ToggleStackListOrientationWithPaneId(PaneId, Option<NotificationEnd>),
     SetPaneFrameStyle(PaneFrameStyle, Option<NotificationEnd>),
     SetSelectable(PaneId, bool),
     ShowPluginCursor(u32, ClientId, Option<(usize, usize)>),
@@ -601,6 +603,7 @@ pub enum ScreenInstruction {
     SetStructuredRenderSupport {
         client_id: ClientId,
         supported: bool,
+        row_shifts: bool,
     },
     SetClipboardPasteSupport {
         client_id: ClientId,
@@ -796,7 +799,7 @@ pub enum ScreenInstruction {
         Option<NotificationEnd>, // completion signal
     ),
     UpdatePluginLoadingStage(u32, LoadingIndication), // u32 - plugin_id
-    StartPluginLoadingIndication(u32, LoadingIndication), // u32 - plugin_id
+    StartPluginLoadingIndication(u32, LoadingIndication, Option<ClientId>), // u32 - plugin_id
     ProgressPluginLoadingOffset(u32),                 // u32 - plugin id
     RequestStateUpdateForPlugins,
     LaunchOrFocusPlugin(
@@ -948,6 +951,7 @@ pub enum ScreenInstruction {
         fit: bool,
     },
     TogglePaneEmbedOrEjectForPaneId(PaneId),
+    MovePaneBetweenLayersForPaneId(PaneId, Option<ClientId>),
     CloseTabWithIndex(usize),
     BreakPanesToNewTab {
         pane_ids: Vec<PaneId>,
@@ -1195,7 +1199,6 @@ pub enum ScreenInstruction {
     ReleaseLiveViewInputWithKey(ClientId),
     ReportLiveViewCaptureChange,
     SetLiveViewReleaseKey(Option<String>),
-    LiveViewReleaseKeysChanged,
     DesktopNotificationResponse(Vec<u8>, ClientId),
     UpdateBackgroundPluginSubscriptions(PluginId, ClientId, HashSet<EventType>),
     ClearHintTextCache,
@@ -1216,7 +1219,7 @@ pub enum ScreenInstruction {
     EditScrollbackWithPaneId(PaneId, bool, Option<NotificationEnd>),
     ToggleFullscreenWithPaneId(PaneId, Option<NotificationEnd>),
     ToggleNoUiFullscreenWithPaneId(PaneId, Option<NotificationEnd>),
-    TogglePaneEmbedOrFloatingWithPaneId(PaneId, Option<NotificationEnd>),
+    TogglePaneEmbedOrFloatingWithPaneId(PaneId, Option<ClientId>, Option<NotificationEnd>),
     CloseFocusWithPaneId(PaneId, Option<NotificationEnd>),
     RenamePaneWithPaneId(PaneId, Vec<u8>, Option<NotificationEnd>),
     UndoRenamePaneWithPaneId(PaneId, Option<NotificationEnd>),
@@ -1369,6 +1372,12 @@ impl From<&ScreenInstruction> for ScreenContext {
                 ScreenContext::ToggleActiveTerminalNoUiFullscreen
             },
             ScreenInstruction::TogglePaneFrames(..) => ScreenContext::TogglePaneFrames,
+            ScreenInstruction::ToggleStackListOrientation(..) => {
+                ScreenContext::ToggleStackListOrientation
+            },
+            ScreenInstruction::ToggleStackListOrientationWithPaneId(..) => {
+                ScreenContext::ToggleStackListOrientationWithPaneId
+            },
             ScreenInstruction::SetPaneFrameStyle(..) => ScreenContext::SetPaneFrameStyle,
             ScreenInstruction::SetSelectable(..) => ScreenContext::SetSelectable,
             ScreenInstruction::ShowPluginCursor(..) => ScreenContext::ShowPluginCursor,
@@ -1560,7 +1569,8 @@ impl From<&ScreenInstruction> for ScreenContext {
             ScreenInstruction::SetMobileRenderPreferences { .. } => {
                 ScreenContext::SetMobileRenderPreferences
             },
-            ScreenInstruction::TogglePaneEmbedOrEjectForPaneId(..) => {
+            ScreenInstruction::TogglePaneEmbedOrEjectForPaneId(..)
+            | ScreenInstruction::MovePaneBetweenLayersForPaneId(..) => {
                 ScreenContext::TogglePaneEmbedOrEjectForPaneId
             },
             ScreenInstruction::CloseTabWithIndex(..) => ScreenContext::CloseTabWithIndex,
@@ -1701,8 +1711,7 @@ impl From<&ScreenInstruction> for ScreenContext {
             | ScreenInstruction::ClearLiveViewsOfPlugin(..)
             | ScreenInstruction::ReleaseLiveViewInputWithKey(..)
             | ScreenInstruction::ReportLiveViewCaptureChange
-            | ScreenInstruction::SetLiveViewReleaseKey(..)
-            | ScreenInstruction::LiveViewReleaseKeysChanged => ScreenContext::PaneMirror,
+            | ScreenInstruction::SetLiveViewReleaseKey(..) => ScreenContext::PaneMirror,
             ScreenInstruction::UpdateBackgroundPluginSubscriptions(..) => {
                 ScreenContext::UpdateBackgroundPluginSubscriptions
             },
@@ -2050,6 +2059,21 @@ struct CopyKeyCapture {
 
 /// A [`Screen`] holds multiple [`Tab`]s, each one holding multiple [`panes`](crate::client::panes).
 /// It only directly controls which tab is active, delegating the rest to the individual `Tab`.
+struct RowShiftsWhileRendering;
+
+impl RowShiftsWhileRendering {
+    fn new(enabled: bool) -> Self {
+        crate::output::set_row_shifts(enabled);
+        RowShiftsWhileRendering
+    }
+}
+
+impl Drop for RowShiftsWhileRendering {
+    fn drop(&mut self) {
+        crate::output::set_row_shifts(false);
+    }
+}
+
 pub(crate) struct Screen {
     /// A Bus for sending and receiving messages with the other threads.
     pub bus: Bus<ScreenInstruction>,
@@ -2064,6 +2088,7 @@ pub(crate) struct Screen {
     character_cell_size: Rc<RefCell<Option<SizeInPixels>>>,
     stacked_resize: Rc<RefCell<bool>>,
     stacked_pane_list: Rc<RefCell<bool>>,
+    stacked_pane_list_orientation: StackListOrientation,
     sixel_image_store: Rc<RefCell<SixelImageStore>>,
     kitty_image_store: Rc<RefCell<KittyImageStore>>,
     kitty_host_capabilities: Rc<RefCell<HashMap<ClientId, KittyHostCapability>>>,
@@ -2071,12 +2096,14 @@ pub(crate) struct Screen {
     sixel_host_capabilities: Rc<RefCell<HashMap<ClientId, bool>>>,
     client_kitty_host_state: Rc<RefCell<HashMap<ClientId, HostKittyState>>>,
     structured_render_clients: Rc<RefCell<HashMap<ClientId, StructuredClientState>>>,
+    render_waits_for_ack: bool,
     clipboard_paste_clients: HashMap<ClientId, Option<String>>,
     pending_client_vte_instructions: HashMap<ClientId, Vec<String>>,
     terminal_emulator_colors: Rc<RefCell<Palette>>,
     terminal_emulator_color_codes: Rc<RefCell<HashMap<usize, String>>>,
     connected_clients: Rc<RefCell<HashMap<ClientId, bool>>>, // bool -> is_web_client
     client_display_slots: Rc<RefCell<HashMap<ClientId, usize>>>,
+    recently_disconnected_clients: VecDeque<ClientId>,
     // The first client is attached only after its initial layout is ready. Keep its
     // identity until then so unrelated CLI disconnects cannot cancel that attach.
     pending_first_client_id: Option<ClientId>,
@@ -2297,6 +2324,8 @@ const SERVER_FORWARD_TIMEOUT_MS: u64 = 1000;
 
 const SERVER_CLIPBOARD_FORWARD_TIMEOUT_MS: u64 = 35_000;
 
+const RECENTLY_DISCONNECTED_CLIENTS_LIMIT: usize = 256;
+
 pub(crate) const ECHO_WINDOW: Duration = Duration::from_millis(50);
 
 pub(crate) fn answers_typed_input(last_input: Option<Instant>, now: Instant) -> bool {
@@ -2409,6 +2438,7 @@ impl Screen {
         support_kitty_graphics_protocol: bool,
         stacked_resize: bool,
         stacked_pane_list: bool,
+        stacked_pane_list_orientation: StackListOrientation,
         default_editor: Option<PathBuf>,
         web_clients_allowed: bool,
         web_sharing: WebSharing,
@@ -2441,6 +2471,7 @@ impl Screen {
             character_cell_size: Rc::new(RefCell::new(None)),
             stacked_resize: Rc::new(RefCell::new(stacked_resize)),
             stacked_pane_list: Rc::new(RefCell::new(stacked_pane_list)),
+            stacked_pane_list_orientation,
             sixel_image_store: Rc::new(RefCell::new(SixelImageStore::default())),
             kitty_image_store: Rc::new(RefCell::new(KittyImageStore::default())),
             kitty_host_capabilities: Rc::new(RefCell::new(HashMap::new())),
@@ -2448,11 +2479,13 @@ impl Screen {
             sixel_host_capabilities: Rc::new(RefCell::new(HashMap::new())),
             client_kitty_host_state: Rc::new(RefCell::new(HashMap::new())),
             structured_render_clients: Rc::new(RefCell::new(HashMap::new())),
+            render_waits_for_ack: false,
             clipboard_paste_clients: HashMap::new(),
             pending_client_vte_instructions: HashMap::new(),
             style: client_attributes.style,
             connected_clients: Rc::new(RefCell::new(HashMap::new())),
             client_display_slots: Rc::new(RefCell::new(HashMap::new())),
+            recently_disconnected_clients: VecDeque::new(),
             pending_first_client_id: Some(initial_client_id),
             active_tab_ids: BTreeMap::new(),
             client_sizes: HashMap::new(),
@@ -3699,6 +3732,32 @@ impl Screen {
                 .push(vte_instruction.clone());
         }
     }
+    pub fn set_row_shift_support(&mut self, client_id: ClientId, row_shifts: bool) {
+        if let Some(state) = self
+            .structured_render_clients
+            .borrow_mut()
+            .get_mut(&client_id)
+        {
+            state.row_shifts = row_shifts;
+        }
+    }
+
+    fn row_shifts_possible(&self) -> bool {
+        if !self.watcher_clients.is_empty() {
+            return false;
+        }
+        let connected = self.connected_clients.borrow();
+        let mut clients = connected.keys();
+        let (Some(client_id), None) = (clients.next(), clients.next()) else {
+            return false;
+        };
+        self.structured_render_clients
+            .borrow()
+            .get(client_id)
+            .map(|state| state.enabled && state.row_shifts && state.in_flight.is_none())
+            .unwrap_or(false)
+    }
+
     pub fn update_structured_render_support(&mut self, client_id: ClientId, supported: bool) {
         if !supported {
             self.release_structured_render_state(client_id);
@@ -3780,6 +3839,17 @@ impl Screen {
         }
     }
 
+    fn pace_structured_payloads_shifted(&mut self, client_id: ClientId) {
+        if let Some(state) = self
+            .structured_render_clients
+            .borrow_mut()
+            .get_mut(&client_id)
+        {
+            let size = state.size;
+            state.reset_viewport(size);
+        }
+    }
+
     fn pace_structured_payloads(
         &mut self,
         payloads: &mut HashMap<ClientId, RenderPayload>,
@@ -3791,6 +3861,7 @@ impl Screen {
             .map(|(client_id, _)| *client_id)
             .collect();
         let mut abandoned = vec![];
+        let mut shifted = vec![];
         {
             let clients = self.structured_render_clients.clone();
             let mut clients = clients.borrow_mut();
@@ -3818,12 +3889,25 @@ impl Screen {
                 }
                 let view = structured_render::decode(frame)
                     .map_err(|e| anyhow!("{}: {}", err_context, e))?;
+                if !view.shifts().is_empty() {
+                    payloads.remove(&client_id);
+                    abandoned.push(client_id);
+                    shifted.push(client_id);
+                    continue;
+                }
                 state.overlay.merge_frame(&view);
                 payloads.remove(&client_id);
             }
         }
         if abandoned.is_empty() {
             return Ok(());
+        }
+        for client_id in shifted {
+            self.pace_structured_payloads_shifted(client_id);
+            abandoned.retain(|abandoned_id| *abandoned_id != client_id);
+            if let Some(watcher_state) = self.watcher_clients.get_mut(&client_id) {
+                watcher_state.set_force_render();
+            }
         }
         for client_id in abandoned {
             log::warn!(
@@ -3851,19 +3935,43 @@ impl Screen {
             return Ok(());
         }
         state.disarm();
-        if !state.overlay.is_dirty() {
-            return Ok(());
+        if state.overlay.is_dirty() {
+            let next_seq = state.allocate_seq();
+            let frame = state.overlay.drain(next_seq);
+            state.arm(next_seq);
+            drop(clients);
+            let mut payloads = HashMap::new();
+            payloads.insert(client_id, RenderPayload::Frame(frame));
+            self.bus
+                .senders
+                .send_to_server(ServerInstruction::Render(Some(payloads)))
+                .context("failed to emit a paced render frame")?;
+        } else {
+            drop(clients);
         }
-        let next_seq = state.allocate_seq();
-        let frame = state.overlay.drain(next_seq);
-        state.arm(next_seq);
-        drop(clients);
-        let mut payloads = HashMap::new();
-        payloads.insert(client_id, RenderPayload::Frame(frame));
-        self.bus
-            .senders
-            .send_to_server(ServerInstruction::Render(Some(payloads)))
-            .context("failed to emit a paced render frame")
+        if std::mem::take(&mut self.render_waits_for_ack) {
+            self.render_to_clients()?;
+        }
+        Ok(())
+    }
+
+    fn every_client_awaits_a_frame_ack(&self) -> bool {
+        if !self.watcher_clients.is_empty() {
+            return false;
+        }
+        let connected = self.connected_clients.borrow();
+        if connected.is_empty() {
+            return false;
+        }
+        let structured = self.structured_render_clients.borrow();
+        connected.keys().all(|client_id| {
+            structured
+                .get(client_id)
+                .map(|state| {
+                    state.enabled && state.in_flight.is_some() && !state.delivery_deadline_expired()
+                })
+                .unwrap_or(false)
+        })
     }
 
     fn release_structured_render_state(&mut self, client_id: ClientId) {
@@ -5913,6 +6021,12 @@ impl Screen {
         let has_watchers = !self.watcher_clients.is_empty(); // No change needed
 
         self.sync_structured_client_viewports();
+        if self.every_client_awaits_a_frame_ack() {
+            self.render_waits_for_ack = true;
+            return Ok(());
+        }
+        self.render_waits_for_ack = false;
+        let _row_shifts = RowShiftsWhileRendering::new(self.row_shifts_possible());
         self.sync_attention_visibility();
         self.sync_plugin_visibility();
         self.sync_live_views();
@@ -6627,6 +6741,7 @@ impl Screen {
             self.character_cell_size.clone(),
             self.stacked_resize.clone(),
             self.stacked_pane_list.clone(),
+            self.stacked_pane_list_orientation,
             self.sixel_image_store.clone(),
             self.kitty_image_store.clone(),
             self.bus
@@ -6921,6 +7036,8 @@ impl Screen {
             bail!("Can't find a valid tab to attach client to!");
         };
 
+        self.recently_disconnected_clients
+            .retain(|disconnected| *disconnected != client_id);
         if self.pending_first_client_id == Some(client_id) {
             self.pending_first_client_id = None;
         }
@@ -6987,6 +7104,12 @@ impl Screen {
         self.copy_key_captures.remove(&client_id);
         self.keybind_intercepts.remove(&client_id);
         let err_context = || format!("failed to remove client {client_id}");
+        if !self.recently_disconnected_clients.contains(&client_id) {
+            if self.recently_disconnected_clients.len() >= RECENTLY_DISCONNECTED_CLIENTS_LIMIT {
+                self.recently_disconnected_clients.pop_front();
+            }
+            self.recently_disconnected_clients.push_back(client_id);
+        }
         if self.pending_first_client_id == Some(client_id) {
             self.pending_first_client_id = None;
         }
@@ -10262,6 +10385,7 @@ impl Screen {
                     // when dumping the layout we want the "real" pane and not the
                     // editor pane
                     let geom_override = serialization_geoms.get(pane_id).copied();
+                    let stack_orientation = tab.stack_list_orientation_for_serialization(pane_id);
                     let (pane_id, p) = match suppressed_panes.remove(pane_id) {
                         Some((is_scrollback_editor, suppressed_pane)) if *is_scrollback_editor => {
                             (suppressed_pane.pid(), suppressed_pane)
@@ -10272,10 +10396,11 @@ impl Screen {
                         pane_id,
                         p,
                         geom_override.unwrap_or_else(|| p.position_and_size()),
+                        stack_orientation,
                     )
                 })
                 .chain(tab.hidden_stack_list_members_for_serialization())
-                .map(|(pane_id, p, geom)| {
+                .map(|(pane_id, p, geom, stack_orientation)| {
                     let focused_clients: Vec<ClientId> = active_pane_ids
                         .iter()
                         .filter_map(|(c_id, p_id)| {
@@ -10300,6 +10425,7 @@ impl Screen {
                         default_bg,
                         p.border_style_override(),
                     )
+                    .with_stack_orientation(stack_orientation)
                     .with_attention_flags(
                         self.attention.pane_is_muted(&pane_id.into()),
                         self.attention.pane_ignores_output(&pane_id.into()),
@@ -10965,6 +11091,9 @@ pub(crate) fn screen_thread_main(
         .unwrap_or(true);
     let stacked_resize = config_options.stacked_resize.unwrap_or(true);
     let stacked_pane_list = config_options.stacked_pane_list.unwrap_or(true);
+    let stacked_pane_list_orientation = config_options
+        .stacked_pane_list_orientation
+        .unwrap_or_default();
     let web_clients_allowed = config_options
         .web_sharing
         .map(|s| s.web_clients_allowed())
@@ -11026,6 +11155,7 @@ pub(crate) fn screen_thread_main(
         support_kitty_graphics_protocol,
         stacked_resize,
         stacked_pane_list,
+        stacked_pane_list_orientation,
         default_editor,
         web_clients_allowed,
         web_sharing,
@@ -11495,9 +11625,9 @@ pub(crate) fn screen_thread_main(
             ) => {
                 screen.record_client_input(client_id);
                 screen.release_live_view_if_unreachable(client_id);
-                if screen.send_key_to_popup(
+                if screen.send_input_to_popup(
                     client_id,
-                    key_with_modifier.clone(),
+                    &key_with_modifier,
                     raw_bytes.clone(),
                     is_kitty_keyboard_protocol,
                 ) {
@@ -11512,7 +11642,7 @@ pub(crate) fn screen_thread_main(
                         .bus
                         .senders
                         .send_to_screen(ScreenInstruction::WriteCharacter(
-                            Some(key_with_modifier),
+                            key_with_modifier,
                             raw_bytes,
                             is_kitty_keyboard_protocol,
                             client_id,
@@ -11548,19 +11678,6 @@ pub(crate) fn screen_thread_main(
                     &raw_bytes,
                     is_kitty_keyboard_protocol,
                 ) {
-                    screen.render(None)?;
-                    continue;
-                }
-                // Paste arrives as WriteCharacter bytes, bypassing the key route.
-                // A focused popup owns this input before pane sync or mode edits.
-                if screen.client_has_focused_popup(client_id)
-                    && screen.send_input_to_popup(
-                        client_id,
-                        &key_with_modifier,
-                        raw_bytes.clone(),
-                        is_kitty_keyboard_protocol,
-                    )
-                {
                     screen.render(None)?;
                     continue;
                 }
@@ -11644,6 +11761,7 @@ pub(crate) fn screen_thread_main(
                         );
                     },
                 };
+                screen.note_attention_input();
                 if state_changed {
                     screen.log_and_report_session_state()?;
                 }
@@ -12868,6 +12986,33 @@ pub(crate) fn screen_thread_main(
                 screen.render(None)?;
                 screen.log_and_report_session_state()?;
             },
+            ScreenInstruction::ToggleStackListOrientation(client_id, _completion_tx) => {
+                active_tab_and_connected_client_id!(
+                    screen,
+                    client_id,
+                    |tab: &mut Tab, client_id: ClientId| {
+                        tab.toggle_stack_list_orientation(client_id);
+                    }
+                );
+                screen.render(None)?;
+                screen.log_and_report_session_state()?;
+            },
+            ScreenInstruction::ToggleStackListOrientationWithPaneId(
+                pane_id,
+                mut _completion_tx,
+            ) => {
+                let toggled = screen
+                    .tabs
+                    .values_mut()
+                    .any(|tab| tab.toggle_stack_list_orientation_of_pane(pane_id));
+                if toggled {
+                    screen.render(None)?;
+                    screen.log_and_report_session_state()?;
+                } else if let Some(ref mut c) = _completion_tx {
+                    c.set_exit_status(1);
+                    c.set_error_message(format!("Pane {:?} is not in a stack", pane_id));
+                }
+            },
             ScreenInstruction::SetPaneFrameStyle(pane_frame_style, _completion_tx) => {
                 screen.pane_frame_style = pane_frame_style;
                 for tab in screen.tabs.values_mut() {
@@ -13260,8 +13405,10 @@ pub(crate) fn screen_thread_main(
             ScreenInstruction::SetStructuredRenderSupport {
                 client_id,
                 supported,
+                row_shifts,
             } => {
                 screen.update_structured_render_support(client_id, supported);
+                screen.set_row_shift_support(client_id, row_shifts);
                 screen.render(None)?;
             },
             ScreenInstruction::SetClipboardPasteSupport {
@@ -14244,11 +14391,11 @@ pub(crate) fn screen_thread_main(
                 }
                 screen.render(None)?;
             },
-            ScreenInstruction::StartPluginLoadingIndication(pid, loading_indication) => {
+            ScreenInstruction::StartPluginLoadingIndication(pid, loading_indication, client_id) => {
                 let all_tabs = screen.get_tabs_mut();
                 for tab in all_tabs.values_mut() {
                     if tab.has_plugin(pid) {
-                        tab.start_plugin_loading_indication(pid, loading_indication);
+                        tab.start_plugin_loading_indication(pid, loading_indication, client_id);
                         break;
                     }
                 }
@@ -14973,6 +15120,9 @@ pub(crate) fn screen_thread_main(
                 let all_tabs = screen.get_tabs_mut();
                 for tab in all_tabs.values_mut() {
                     if tab.has_pane_with_pid(&pane_id) {
+                        if tab.is_pane_requesting_permissions(pane_id) {
+                            break;
+                        }
                         tab.write_to_pane_id(&None, bytes, false, pane_id, None, None)
                             .non_fatal();
                         break;
@@ -15026,6 +15176,9 @@ pub(crate) fn screen_thread_main(
                 let all_tabs = screen.get_tabs_mut();
                 for tab in all_tabs.values_mut() {
                     if tab.has_pane_with_pid(&pane_id) {
+                        if tab.is_pane_requesting_permissions(pane_id) {
+                            break;
+                        }
                         tab.write_to_pane_id(
                             &key_with_modifier,
                             bytes,
@@ -15229,6 +15382,16 @@ pub(crate) fn screen_thread_main(
                     if tab.has_pane_with_pid(&pane_id) {
                         tab.toggle_pane_embed_or_floating_for_pane_id(pane_id, None)
                             .non_fatal();
+                        break;
+                    }
+                }
+                screen.render(None)?;
+            },
+            ScreenInstruction::MovePaneBetweenLayersForPaneId(pane_id, client_id) => {
+                let all_tabs = screen.get_tabs_mut();
+                for tab in all_tabs.values_mut() {
+                    if tab.has_pane_with_pid(&pane_id) {
+                        tab.move_pane_between_layers(pane_id, client_id).non_fatal();
                         break;
                     }
                 }
@@ -16028,9 +16191,6 @@ pub(crate) fn screen_thread_main(
             ScreenInstruction::SetLiveViewReleaseKey(release_key) => {
                 screen.set_live_view_release_key(release_key);
             },
-            ScreenInstruction::LiveViewReleaseKeysChanged => {
-                screen.report_live_views();
-            },
             ScreenInstruction::UpdateBackgroundPluginSubscriptions(
                 plugin_id,
                 client_id,
@@ -16359,13 +16519,16 @@ pub(crate) fn screen_thread_main(
                 screen.render(None)?;
                 screen.log_and_report_session_state()?;
             },
-            ScreenInstruction::TogglePaneEmbedOrFloatingWithPaneId(pane_id, mut _completion_tx) => {
+            ScreenInstruction::TogglePaneEmbedOrFloatingWithPaneId(
+                pane_id,
+                client_id,
+                mut _completion_tx,
+            ) => {
                 let all_tabs = screen.get_tabs_mut();
                 let mut found = false;
                 for tab in all_tabs.values_mut() {
                     if tab.has_pane_with_pid(&pane_id) {
-                        tab.toggle_pane_embed_or_floating_for_pane_id(pane_id, None)
-                            .non_fatal();
+                        tab.move_pane_between_layers(pane_id, client_id).non_fatal();
                         found = true;
                         break;
                     }

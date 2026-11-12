@@ -44,6 +44,7 @@ use zellij_utils::data::{
 use zellij_utils::downloader::Downloader;
 use zellij_utils::input::permission::PermissionCache;
 use zellij_utils::plugin_api::event::{event_to_protobuf_with_keybinds, ProtobufEvent};
+use zellij_utils::plugin_api::released_contract;
 
 use prost::Message;
 
@@ -936,7 +937,11 @@ impl WasmBridge {
                 .insert(plugin_id, (rows, columns));
 
             let loading_indication = LoadingIndication::new(run_plugin.location.to_string());
-            self.start_plugin_loading_indication(&[plugin_id], &loading_indication);
+            self.start_plugin_loading_indication_for_client(
+                plugin_id,
+                client_id,
+                &loading_indication,
+            );
             self.loading_plugins.insert((plugin_id, run_plugin.clone()));
 
             let plugin_executor = self.plugin_executor.clone();
@@ -2213,11 +2218,29 @@ impl WasmBridge {
                 .send_to_screen(ScreenInstruction::StartPluginLoadingIndication(
                     *plugin_id,
                     loading_indication.clone(),
+                    None,
                 ));
             let _ = self
                 .senders
                 .send_to_background_jobs(BackgroundJob::AnimatePluginLoading(*plugin_id));
         }
+    }
+    fn start_plugin_loading_indication_for_client(
+        &self,
+        plugin_id: PluginId,
+        client_id: ClientId,
+        loading_indication: &LoadingIndication,
+    ) {
+        let _ = self
+            .senders
+            .send_to_screen(ScreenInstruction::StartPluginLoadingIndication(
+                plugin_id,
+                loading_indication.clone(),
+                Some(client_id),
+            ));
+        let _ = self
+            .senders
+            .send_to_background_jobs(BackgroundJob::AnimatePluginLoading(plugin_id));
     }
     pub fn post_messages_to_plugin_worker(
         &mut self,
@@ -3639,6 +3662,15 @@ pub fn apply_event_to_plugin(
             }
             let is_permission_request_result = matches!(event, Event::PermissionRequestResult(..));
             let protobuf_event = event_to_protobuf_with_keybinds(event, keybinds.as_deref());
+            let protobuf_event = match protobuf_event {
+                Ok(protobuf_event) if running_plugin.built_against_0_45 => {
+                    match released_contract::event_for_0_45_plugin(protobuf_event) {
+                        Some(protobuf_event) => Ok(protobuf_event),
+                        None => return Ok(()),
+                    }
+                },
+                other => other,
+            };
             match protobuf_event {
                 Ok(protobuf_event) => {
                     let update = instance

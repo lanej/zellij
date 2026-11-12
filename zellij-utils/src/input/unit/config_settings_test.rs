@@ -61,6 +61,9 @@ fn every_option_set() -> Options {
         web_sharing: Some(WebSharing::Disabled),
         stacked_resize: Some(false),
         stacked_pane_list: Some(false),
+        stacked_pane_list_orientation: Some(
+            crate::input::options::StackListOrientation::Horizontal,
+        ),
         show_startup_tips: Some(false),
         show_release_notes: Some(false),
         advanced_mouse_actions: Some(false),
@@ -147,6 +150,9 @@ context_menu {
 
 const EVERY_WINDOW_SETTING_SET: &str = "terminal {
     font \"Iosevka Term\"
+    font_bold \"Iosevka Term Bold\"
+    font_italic \"Iosevka Term Italic\"
+    font_bold_italic \"Iosevka Term Bold Italic\"
     font_size 13.5
     font_weight 500
     system_fonts false
@@ -264,10 +270,12 @@ pub(crate) fn every_setting_set() -> Config {
             tab_markers: Some(false),
             idle_rule: Some(crate::input::attention::IdleRuleScope::Watched),
             done_threshold_secs: Some(30),
+            track_commands: Some(false),
             idle_activity_secs: Some(20),
             idle_silence_secs: Some(5),
             startup_card: Some(crate::input::attention::StartupCard::Never),
             tray_icon: Some(false),
+            enabled: Some(false),
             desktop_notifications: crate::input::attention::StatusMap {
                 needs_you: Some(true),
                 failed: Some(false),
