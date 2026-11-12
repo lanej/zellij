@@ -19,6 +19,33 @@ const BASE64_DECODER: GeneralPurpose = GeneralPurpose::new(
     GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
 );
 
+pub fn attachment_refusal(
+    allow_nested: Option<bool>,
+    allow_cycles: Option<bool>,
+    ancestry: &[String],
+    target_id: Option<&str>,
+    ancestry_ids: &[String],
+) -> Option<&'static str> {
+    if ancestry.is_empty() {
+        None
+    } else if allow_nested == Some(false) {
+        Some("Nested sessions are disabled by allow_nested_sessions. Enable that option to allow nesting.")
+    } else if allow_cycles == Some(false)
+        && (target_id.is_none_or(str::is_empty)
+            || ancestry_ids.is_empty()
+            || ancestry_ids.iter().any(String::is_empty))
+    {
+        Some("Cannot verify the cyclic-attachment policy with this peer. Enable allow_cyclic_sessions to permit attachment without identity verification.")
+    } else if allow_cycles == Some(false)
+        && target_id
+            .is_some_and(|id| !id.is_empty() && ancestry_ids.iter().any(|ancestor| ancestor == id))
+    {
+        Some("Cyclic attachment is disabled by allow_cyclic_sessions. Enable that option to allow it.")
+    } else {
+        None
+    }
+}
+
 pub const NESTED_DCS_PARAM: u16 = 26661;
 pub const NESTED_FRAME_HEADER: &[u8] = b"\x1bP26661n";
 pub const NESTED_FRAME_TERMINATOR: &[u8] = b"\x1b\\";
@@ -109,7 +136,11 @@ pub enum NestedSessionCapability {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NestedSessionMessage {
+    Refused {
+        reason: String,
+    },
     Announce {
+        session_id: Option<String>,
         session_name: String,
         capabilities: Vec<NestedSessionCapability>,
     },
@@ -122,6 +153,7 @@ pub enum NestedSessionMessage {
     Pong,
     Bye,
     AnnounceAck {
+        ancestry_ids: Vec<String>,
         ancestry: Vec<String>,
         capabilities: Vec<NestedSessionCapability>,
         descend_keys: Vec<KeyWithModifier>,
@@ -134,6 +166,7 @@ pub enum NestedSessionMessage {
         fullscreen: bool,
     },
     AncestryUpdate {
+        ancestry_ids: Vec<String>,
         ancestry: Vec<String>,
     },
     Ping,
@@ -303,9 +336,11 @@ impl From<NestedSessionMessage> for proto::NestedSessionMessage {
         use proto::nested_session_message::Payload;
         let payload = match message {
             NestedSessionMessage::Announce {
+                session_id,
                 session_name,
                 capabilities,
             } => Payload::Announce(proto::Announce {
+                session_id,
                 session_name,
                 capabilities: capabilities_to_proto(&capabilities),
             }),
@@ -315,13 +350,16 @@ impl From<NestedSessionMessage> for proto::NestedSessionMessage {
             NestedSessionMessage::ToggleHostFullscreen { fullscreen } => {
                 Payload::HostFullscreen(proto::ToggleHostFullscreen { fullscreen })
             },
+            NestedSessionMessage::Refused { reason } => Payload::Refused(proto::Refused { reason }),
             NestedSessionMessage::Pong => Payload::Pong(proto::Pong {}),
             NestedSessionMessage::Bye => Payload::Bye(proto::Bye {}),
             NestedSessionMessage::AnnounceAck {
+                ancestry_ids,
                 ancestry,
                 capabilities,
                 descend_keys,
             } => Payload::AnnounceAck(proto::AnnounceAck {
+                ancestry_ids,
                 ancestry,
                 capabilities: capabilities_to_proto(&capabilities),
                 descend_keys: keys_to_proto(&descend_keys),
@@ -335,9 +373,13 @@ impl From<NestedSessionMessage> for proto::NestedSessionMessage {
             NestedSessionMessage::FullscreenState { fullscreen } => {
                 Payload::FullscreenState(proto::FullscreenState { fullscreen })
             },
-            NestedSessionMessage::AncestryUpdate { ancestry } => {
-                Payload::AncestryUpdate(proto::AncestryUpdate { ancestry })
-            },
+            NestedSessionMessage::AncestryUpdate {
+                ancestry,
+                ancestry_ids,
+            } => Payload::AncestryUpdate(proto::AncestryUpdate {
+                ancestry,
+                ancestry_ids,
+            }),
             NestedSessionMessage::Ping => Payload::Ping(proto::Ping {}),
             NestedSessionMessage::ShortcutUpdate {
                 ascend_keys,
@@ -393,6 +435,7 @@ impl TryFrom<proto::NestedSessionMessage> for NestedSessionMessage {
         use proto::nested_session_message::Payload;
         match message.payload {
             Some(Payload::Announce(announce)) => Ok(NestedSessionMessage::Announce {
+                session_id: announce.session_id,
                 session_name: announce.session_name,
                 capabilities: capabilities_from_proto(&announce.capabilities),
             }),
@@ -404,9 +447,13 @@ impl TryFrom<proto::NestedSessionMessage> for NestedSessionMessage {
                     fullscreen: host_fullscreen.fullscreen,
                 })
             },
+            Some(Payload::Refused(refused)) => Ok(NestedSessionMessage::Refused {
+                reason: refused.reason,
+            }),
             Some(Payload::Pong(_)) => Ok(NestedSessionMessage::Pong),
             Some(Payload::Bye(_)) => Ok(NestedSessionMessage::Bye),
             Some(Payload::AnnounceAck(announce_ack)) => Ok(NestedSessionMessage::AnnounceAck {
+                ancestry_ids: announce_ack.ancestry_ids,
                 ancestry: announce_ack.ancestry,
                 capabilities: capabilities_from_proto(&announce_ack.capabilities),
                 descend_keys: keys_from_proto(&announce_ack.descend_keys),
@@ -422,6 +469,7 @@ impl TryFrom<proto::NestedSessionMessage> for NestedSessionMessage {
             },
             Some(Payload::AncestryUpdate(ancestry_update)) => {
                 Ok(NestedSessionMessage::AncestryUpdate {
+                    ancestry_ids: ancestry_update.ancestry_ids,
                     ancestry: ancestry_update.ancestry,
                 })
             },
@@ -618,6 +666,7 @@ mod tests {
     fn all_message_arms() -> Vec<NestedSessionMessage> {
         vec![
             NestedSessionMessage::Announce {
+                session_id: None,
                 session_name: "guest".to_owned(),
                 capabilities: vec![
                     NestedSessionCapability::NestedControl,
@@ -629,9 +678,28 @@ mod tests {
             },
             NestedSessionMessage::FocusHost { direction: None },
             NestedSessionMessage::ToggleHostFullscreen { fullscreen: true },
+            NestedSessionMessage::Refused {
+                reason: "Nesting is disabled".to_owned(),
+            },
+            NestedSessionMessage::Announce {
+                session_id: Some("guest-id".to_owned()),
+                session_name: "main".to_owned(),
+                capabilities: vec![],
+            },
+            NestedSessionMessage::AnnounceAck {
+                ancestry_ids: vec!["host-id".to_owned()],
+                ancestry: vec!["main".to_owned()],
+                capabilities: vec![],
+                descend_keys: vec![],
+            },
+            NestedSessionMessage::AncestryUpdate {
+                ancestry_ids: vec!["host-id".to_owned()],
+                ancestry: vec!["main".to_owned()],
+            },
             NestedSessionMessage::Pong,
             NestedSessionMessage::Bye,
             NestedSessionMessage::AnnounceAck {
+                ancestry_ids: vec![],
                 ancestry: vec!["outer".to_owned(), "middle".to_owned()],
                 capabilities: vec![
                     NestedSessionCapability::NestedControl,
@@ -648,6 +716,7 @@ mod tests {
             NestedSessionMessage::FocusLost,
             NestedSessionMessage::FullscreenState { fullscreen: true },
             NestedSessionMessage::AncestryUpdate {
+                ancestry_ids: vec![],
                 ancestry: vec!["outer".to_owned()],
             },
             NestedSessionMessage::Ping,
@@ -764,6 +833,7 @@ mod tests {
     #[test]
     fn frame_roundtrip_preserves_message() {
         let message = NestedSessionMessage::Announce {
+            session_id: None,
             session_name: "guest".to_owned(),
             capabilities: vec![NestedSessionCapability::NestedControl],
         };
@@ -784,6 +854,7 @@ mod tests {
     #[test]
     fn truncated_payload_is_rejected() {
         let payload = encode_payload(&NestedSessionMessage::Announce {
+            session_id: None,
             session_name: "a-long-session-name-to-truncate".to_owned(),
             capabilities: vec![],
         });
@@ -1095,5 +1166,58 @@ mod tests {
         let mut scheduler = test_scheduler(start);
         assert!(scheduler.note_host_contact(start));
         assert!(!scheduler.note_host_contact(start + Duration::from_millis(1000)));
+    }
+}
+
+#[cfg(test)]
+mod nesting_policy_tests {
+    use super::*;
+
+    #[test]
+    fn nested_policy_preserves_defaults_and_distinguishes_ids_from_names() {
+        let ancestry = vec!["main".to_owned()];
+        let ids = vec!["host-id".to_owned()];
+        assert!(attachment_refusal(None, None, &ancestry, Some("host-id"), &ids).is_none());
+        assert!(attachment_refusal(
+            Some(true),
+            Some(false),
+            &ancestry,
+            Some("different-id"),
+            &ids
+        )
+        .is_none());
+        assert!(
+            attachment_refusal(Some(true), Some(false), &ancestry, Some("host-id"), &ids)
+                .unwrap()
+                .contains("allow_cyclic_sessions")
+        );
+        assert!(attachment_refusal(
+            Some(false),
+            Some(true),
+            &ancestry,
+            Some("different-id"),
+            &ids
+        )
+        .unwrap()
+        .contains("allow_nested_sessions"));
+        assert!(attachment_refusal(Some(false), Some(false), &[], None, &[]).is_none());
+    }
+
+    #[test]
+    fn nested_policy_explains_when_peer_identity_cannot_be_verified() {
+        assert!(
+            attachment_refusal(Some(true), Some(false), &["main".into()], None, &[])
+                .unwrap()
+                .contains("Cannot verify")
+        );
+        assert!(attachment_refusal(
+            Some(true),
+            Some(false),
+            &["old-host".into(), "modern-host".into()],
+            Some("guest-id"),
+            &[String::new(), "modern-host-id".into()]
+        )
+        .unwrap()
+        .contains("Cannot verify"));
     }
 }

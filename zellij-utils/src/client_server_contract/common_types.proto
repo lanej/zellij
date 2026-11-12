@@ -1385,6 +1385,8 @@ message Options {
   optional bool mode_hints_when_bars_hidden = 87;
   optional string stacked_pane_list_orientation = 88;
   optional bool hide_scroll_indicator_when_idle = 89;
+  optional bool allow_nested_sessions = 90;
+  optional bool allow_cyclic_sessions = 91;
 }
 
 enum OnForceClose {

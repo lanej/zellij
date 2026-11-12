@@ -2356,6 +2356,10 @@ pub struct Options {
     pub stacked_pane_list_orientation: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(bool, optional, tag="89")]
     pub hide_scroll_indicator_when_idle: ::core::option::Option<bool>,
+    #[prost(bool, optional, tag="90")]
+    pub allow_nested_sessions: ::core::option::Option<bool>,
+    #[prost(bool, optional, tag="91")]
+    pub allow_cyclic_sessions: ::core::option::Option<bool>,
 }
 /// Pane-targeting action messages
 #[allow(clippy::derive_partial_eq_without_eq)]

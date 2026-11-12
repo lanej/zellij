@@ -1246,6 +1246,8 @@ impl From<crate::input::options::Options>
                 crate::input::options::PaneFrameStyle::Titles => "titles".to_owned(),
                 crate::input::options::PaneFrameStyle::None => "none".to_owned(),
             }),
+            allow_nested_sessions: options.allow_nested_sessions,
+            allow_cyclic_sessions: options.allow_cyclic_sessions,
             nested_session_handling: options.nested_session_handling.map(|n| {
                 use crate::client_server_contract::client_server_contract::NestedSessionHandling as ProtoNestedSessionHandling;
                 use crate::input::options::NestedSessionHandling;
@@ -1428,6 +1430,8 @@ impl TryFrom<crate::client_server_contract::client_server_contract::Options>
                         .map_err(|e| anyhow!(e))
                 })
                 .transpose()?,
+            allow_nested_sessions: options.allow_nested_sessions,
+            allow_cyclic_sessions: options.allow_cyclic_sessions,
             nested_session_handling: options
                 .nested_session_handling
                 .map(|n| match ProtoNestedSessionHandling::try_from(n).ok() {

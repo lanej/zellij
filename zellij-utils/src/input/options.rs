@@ -596,6 +596,16 @@ pub struct Options {
     #[serde(default)]
     pub nested_session_handling: Option<NestedSessionHandling>,
 
+    /// Allow starting inside, or hosting, another Zellij session (default true).
+    #[clap(long, value_parser)]
+    #[serde(default)]
+    pub allow_nested_sessions: Option<bool>,
+
+    /// Allow attachment to a containing session (default true).
+    #[clap(long, value_parser)]
+    #[serde(default)]
+    pub allow_cyclic_sessions: Option<bool>,
+
     #[clap(long, value_parser)]
     #[serde(default)]
     pub dangerously_enable_paste_buffer_read: Option<bool>,
@@ -847,6 +857,8 @@ impl Options {
         let client_async_worker_tasks = other
             .client_async_worker_tasks
             .or(self.client_async_worker_tasks);
+        let allow_nested_sessions = other.allow_nested_sessions.or(self.allow_nested_sessions);
+        let allow_cyclic_sessions = other.allow_cyclic_sessions.or(self.allow_cyclic_sessions);
         let nested_session_handling = other
             .nested_session_handling
             .or(self.nested_session_handling);
@@ -939,6 +951,8 @@ impl Options {
             post_command_discovery_hook,
             client_async_worker_tasks,
             nested_session_handling,
+            allow_nested_sessions,
+            allow_cyclic_sessions,
             dangerously_enable_paste_buffer_read,
             session_indicator,
             swap_layout_notification,
@@ -1080,6 +1094,8 @@ impl Options {
         let client_async_worker_tasks = other
             .client_async_worker_tasks
             .or(self.client_async_worker_tasks);
+        let allow_nested_sessions = other.allow_nested_sessions.or(self.allow_nested_sessions);
+        let allow_cyclic_sessions = other.allow_cyclic_sessions.or(self.allow_cyclic_sessions);
         let nested_session_handling = other
             .nested_session_handling
             .or(self.nested_session_handling);
@@ -1175,6 +1191,8 @@ impl Options {
             post_command_discovery_hook,
             client_async_worker_tasks,
             nested_session_handling,
+            allow_nested_sessions,
+            allow_cyclic_sessions,
             dangerously_enable_paste_buffer_read,
             session_indicator,
             swap_layout_notification,

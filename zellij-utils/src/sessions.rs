@@ -36,6 +36,52 @@ pub fn generate_session_id() -> String {
     id
 }
 
+/// Return the cross-host nesting identity without treating legacy socket names as identities.
+pub fn nesting_identity(session_id: &str) -> io::Result<String> {
+    validate_session_folder_name(session_id)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
+    nesting_identity_in(&session_info_folder_for_session(session_id))
+}
+
+/// Read an existing nesting identity without creating session metadata.
+pub fn read_nesting_identity(session_id: &str) -> io::Result<String> {
+    validate_session_folder_name(session_id)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
+    let identity =
+        fs::read_to_string(session_info_folder_for_session(session_id).join("nesting-identity"))?;
+    Uuid::parse_str(&identity)
+        .map(|id| id.to_string())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+fn nesting_identity_in(directory: &Path) -> io::Result<String> {
+    use std::io::Write;
+    fs::create_dir_all(directory)?;
+    let path = directory.join("nesting-identity");
+    match fs::read_to_string(&path) {
+        Ok(identity) => {
+            return Uuid::parse_str(&identity)
+                .map(|id| id.to_string())
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {},
+        Err(error) => return Err(error),
+    }
+    let identity = Uuid::new_v4().to_string();
+    let mut file = tempfile::NamedTempFile::new_in(directory)?;
+    file.write_all(identity.as_bytes())?;
+    match file.persist_noclobber(&path) {
+        Ok(_) => Ok(identity),
+        Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => {
+            let identity = fs::read_to_string(path)?;
+            Uuid::parse_str(&identity)
+                .map(|id| id.to_string())
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+        },
+        Err(error) => Err(error.error),
+    }
+}
+
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -1066,5 +1112,34 @@ mod session_folder_name_tests {
                 name
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod nesting_identity_tests {
+    use super::*;
+
+    #[test]
+    fn nested_policy_identity_is_stable_distinct_and_atomically_shared() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let path = first.path().to_path_buf();
+                std::thread::spawn(move || nesting_identity_in(&path).unwrap())
+            })
+            .collect();
+        let ids: Vec<_> = threads
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .collect();
+        assert!(ids.iter().all(|id| id == &ids[0]));
+        assert_eq!(nesting_identity_in(first.path()).unwrap(), ids[0]);
+        assert_ne!(nesting_identity_in(second.path()).unwrap(), ids[0]);
+        fs::write(first.path().join("nesting-identity"), "main").unwrap();
+        assert_eq!(
+            nesting_identity_in(first.path()).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 }

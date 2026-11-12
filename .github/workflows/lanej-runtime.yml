@@ -54,13 +54,17 @@ jobs:
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
             --target "$host" dotfiles_
           rustup run 1.95.0 cargo test --locked \
+            -p zellij-server -p zellij-client -p zellij-utils --lib --no-default-features \
+            --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
+            --target "$host" nested_
+          rustup run 1.95.0 cargo test --locked \
             -p zellij-server -p zellij-utils --lib --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
             --target "$host" scroll_indicator
           rustup run 1.95.0 cargo test --locked \
             -p configuration --no-default-features \
             --features zellij-utils/vendored_curl,zellij-utils/web_server_capability \
-            --target "$host" scroll_indicator
+            --target "$host"
           rustup run 1.95.0 cargo test --locked \
             -p zellij-integration-tests --test clients --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
@@ -79,5 +83,19 @@ jobs:
             --target "$host" keyboard_copy
           rustup run 1.95.0 cargo test --locked \
             -p zellij-integration-tests --test keyboard_copy --no-default-features \
+            --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
+            --target "$host"
+      - name: Verify configurable session nesting
+        run: |
+          host=$(rustup run 1.95.0 rustc -vV | sed -n 's/^host: //p')
+          test -n "$host"
+          for detector in session_switch config_settings server_client_contract; do
+            rustup run 1.95.0 cargo test --locked \
+              -p zellij-server -p zellij-client -p zellij-utils --lib --no-default-features \
+              --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
+              --target "$host" "$detector"
+          done
+          rustup run 1.95.0 cargo test --locked \
+            -p zellij-integration-tests --test nested_session_policy --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
             --target "$host"

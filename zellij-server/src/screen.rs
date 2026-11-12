@@ -900,6 +900,8 @@ pub enum ScreenInstruction {
         osc133_command_selection: bool,
         word_separators: String,
         host_notification_protocol: HostNotificationProtocol,
+        allow_nested_sessions: bool,
+        allow_cyclic_sessions: bool,
         nested_session_handling: NestedSessionHandling,
         dangerously_enable_paste_buffer_read: bool,
     },
@@ -2116,6 +2118,7 @@ pub(crate) struct Screen {
     session_name: String,
     /// Stable session id (socket/pipe filename), decoupled from `session_name`.
     session_id: String,
+    nesting_identity: Option<String>,
     peer_sessions_cache: BTreeMap<String, SessionInfo>, // String is the session name, can
     // also be this session
     resurrectable_sessions_cache: BTreeMap<String, Duration>, // String is the session name,
@@ -2183,6 +2186,8 @@ pub(crate) struct Screen {
     paste_buffer_read_enabled: bool,
     nested_guest_tracker: NestedGuestTracker,
     nested_ancestry: Vec<String>,
+    client_nested_ancestries: BTreeMap<ClientId, Vec<String>>,
+    client_nested_ancestry_ids: BTreeMap<ClientId, Vec<String>>,
     nested_via_client_id: Option<ClientId>,
     nested_fullscreen_panes: HashSet<PaneId>,
     own_fullscreen_requested: bool,
@@ -2211,6 +2216,8 @@ pub(crate) struct Screen {
     configured_explicit_theme_hue: Option<ThemeHue>,
     host_theme_dark_styling: Option<Styling>,
     host_theme_light_styling: Option<Styling>,
+    allow_nested_sessions: bool,
+    allow_cyclic_sessions: bool,
     nested_session_handling: NestedSessionHandling,
     last_mobile_state_sent: HashMap<ClientId, MobileStatePayload>,
     pane_output_activity: HashMap<PaneId, Instant>,
@@ -2496,6 +2503,7 @@ impl Screen {
             debug,
             session_name,
             session_id,
+            nesting_identity: None,
             peer_sessions_cache,
             default_layout,
             default_layout_name,
@@ -2563,6 +2571,8 @@ impl Screen {
             paste_buffer_read_enabled: false,
             nested_guest_tracker: NestedGuestTracker::default(),
             nested_ancestry: vec![],
+            client_nested_ancestries: BTreeMap::new(),
+            client_nested_ancestry_ids: BTreeMap::new(),
             nested_via_client_id: None,
             nested_fullscreen_panes: HashSet::new(),
             own_fullscreen_requested: false,
@@ -2591,6 +2601,8 @@ impl Screen {
             configured_explicit_theme_hue: None,
             host_theme_dark_styling: None,
             host_theme_light_styling: None,
+            allow_nested_sessions: true,
+            allow_cyclic_sessions: true,
             nested_session_handling,
             last_mobile_state_sent: HashMap::new(),
             pane_output_activity: HashMap::new(),
@@ -4237,10 +4249,11 @@ impl Screen {
     ) {
         match message {
             NestedSessionMessage::Announce {
+                session_id,
                 session_name,
                 capabilities,
             } => {
-                self.handle_nested_guest_announce(pane_id, session_name, capabilities);
+                self.handle_nested_guest_announce(pane_id, session_name, capabilities, session_id);
             },
             NestedSessionMessage::Pong => {
                 self.nested_guest_tracker.on_pong(pane_id, Instant::now());
@@ -4704,12 +4717,35 @@ impl Screen {
         pane_id: PaneId,
         guest_session_name: String,
         guest_capabilities: Vec<NestedSessionCapability>,
+        guest_session_id: Option<String>,
     ) {
         use crate::nested_guest::AnnounceKind;
         let terminal_id = match pane_id {
             PaneId::Terminal(terminal_id) => terminal_id,
             PaneId::Plugin(_) => return,
         };
+        let mut ancestry = self.containing_session_names();
+        ancestry.push(self.session_name.clone());
+        if let Some(reason) = nested_session::attachment_refusal(
+            Some(self.allow_nested_sessions),
+            Some(self.allow_cyclic_sessions),
+            &ancestry,
+            guest_session_id.as_deref(),
+            &self.containing_session_ids(),
+        ) {
+            let refusal = NestedSessionMessage::Refused {
+                reason: reason.to_owned(),
+            };
+            let _ = self
+                .bus
+                .senders
+                .send_to_pty_writer(PtyWriteInstruction::Write(
+                    nested_session::encode_frame(&refusal),
+                    terminal_id,
+                    None,
+                ));
+            return;
+        }
         let announce_kind = self
             .nested_guest_tracker
             .on_announce(pane_id, Instant::now());
@@ -4744,9 +4780,10 @@ impl Screen {
             },
         }
         self.guest_capabilities.insert(pane_id, guest_capabilities);
-        let mut ancestry = self.nested_ancestry.clone();
+        let mut ancestry = self.containing_session_names();
         ancestry.push(self.session_name.clone());
         let announce_ack = NestedSessionMessage::AnnounceAck {
+            ancestry_ids: self.containing_session_ids(),
             ancestry,
             capabilities: vec![
                 NestedSessionCapability::NestedControl,
@@ -5513,10 +5550,57 @@ impl Screen {
         terminal_ids
     }
 
+    pub(crate) fn set_session_nesting_policy(&mut self, allow_nested: bool, allow_cycles: bool) {
+        self.allow_nested_sessions = allow_nested;
+        self.allow_cyclic_sessions = allow_cycles;
+    }
+
+    fn containing_session_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .client_nested_ancestry_ids
+            .values()
+            .flatten()
+            .cloned()
+            .collect();
+        // rationale(compatibility): Preserve unknown ancestors through modern hosts so a partial identity list never implies verified ancestry.
+        if self
+            .client_nested_ancestries
+            .iter()
+            .any(|(client_id, names)| {
+                !names.is_empty()
+                    && self
+                        .client_nested_ancestry_ids
+                        .get(client_id)
+                        .is_none_or(Vec::is_empty)
+            })
+        {
+            ids.push(String::new());
+        }
+        ids.push(self.nesting_identity.clone().unwrap_or_default());
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+    fn containing_session_names(&self) -> Vec<String> {
+        let mut names = vec![];
+        for ancestry in self.client_nested_ancestries.values() {
+            for name in ancestry {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+        }
+        names
+    }
+
     fn broadcast_ancestry_update_to_guests(&self) {
-        let mut ancestry = self.nested_ancestry.clone();
+        let mut ancestry = self.containing_session_names();
         ancestry.push(self.session_name.clone());
-        let message = NestedSessionMessage::AncestryUpdate { ancestry };
+        let message = NestedSessionMessage::AncestryUpdate {
+            ancestry,
+            ancestry_ids: self.containing_session_ids(),
+        };
         let frame = nested_session::encode_frame(&message);
         for terminal_id in self.nested_guest_terminal_ids() {
             let _ = self
@@ -5657,8 +5741,34 @@ impl Screen {
         client_id: ClientId,
         message: NestedSessionMessage,
     ) {
+        if let NestedSessionMessage::AnnounceAck {
+            ref ancestry,
+            ref ancestry_ids,
+            ..
+        }
+        | NestedSessionMessage::AncestryUpdate {
+            ref ancestry,
+            ref ancestry_ids,
+        } = message
+        {
+            if let Some(reason) = nested_session::attachment_refusal(
+                Some(self.allow_nested_sessions),
+                Some(self.allow_cyclic_sessions),
+                ancestry,
+                self.nesting_identity.as_deref(),
+                ancestry_ids,
+            ) {
+                log::warn!("Detaching client {client_id}: {reason}");
+                let _ = self
+                    .bus
+                    .senders
+                    .send_to_server(ServerInstruction::DetachSession(vec![client_id], None));
+                return;
+            }
+        }
         match message {
             NestedSessionMessage::AnnounceAck {
+                ancestry_ids,
                 ancestry,
                 capabilities,
                 descend_keys,
@@ -5667,6 +5777,10 @@ impl Screen {
                     "nested session handshake complete: this session is nested inside ancestry {:?}",
                     ancestry
                 );
+                self.client_nested_ancestry_ids
+                    .insert(client_id, ancestry_ids);
+                self.client_nested_ancestries
+                    .insert(client_id, ancestry.clone());
                 self.nested_ancestry = ancestry;
                 self.nested_via_client_id = Some(client_id);
                 self.host_descend_keys = descend_keys;
@@ -5703,7 +5817,14 @@ impl Screen {
                 self.own_fullscreen_requested = fullscreen;
                 self.update_all_clients_nesting_mode_info();
             },
-            NestedSessionMessage::AncestryUpdate { ancestry } => {
+            NestedSessionMessage::AncestryUpdate {
+                ancestry,
+                ancestry_ids,
+            } => {
+                self.client_nested_ancestry_ids
+                    .insert(client_id, ancestry_ids);
+                self.client_nested_ancestries
+                    .insert(client_id, ancestry.clone());
                 self.nested_ancestry = ancestry;
                 self.update_all_clients_nesting_mode_info();
                 self.broadcast_ancestry_update_to_guests();
@@ -7083,6 +7204,8 @@ impl Screen {
         self.pending_keybinds_requests.retain(|_, pending| {
             !matches!(pending.reply_to, KeybindsReplyTo::Host { client_id: host_client_id, .. } if host_client_id == client_id)
         });
+        self.client_nested_ancestry_ids.remove(&client_id);
+        let removed_ancestry = self.client_nested_ancestries.remove(&client_id).is_some();
         if self.nested_via_client_id == Some(client_id) {
             self.host_capabilities = vec![];
             self.last_reported_upward = None;
@@ -7091,6 +7214,9 @@ impl Screen {
             self.host_descended = false;
             self.host_descend_keys = vec![];
             self.update_all_clients_nesting_mode_info();
+            self.broadcast_ancestry_update_to_guests();
+        }
+        if removed_ancestry {
             self.broadcast_ancestry_update_to_guests();
         }
         self.log_and_report_session_state().non_fatal();
@@ -8360,6 +8486,7 @@ impl Screen {
                 );
             }
         }
+        self.broadcast_ancestry_update_to_guests();
         Ok(Ok(()))
     }
 
@@ -9540,6 +9667,8 @@ impl Screen {
         osc133_command_selection: bool,
         word_separators: String,
         host_notification_protocol: HostNotificationProtocol,
+        allow_nested_sessions: bool,
+        allow_cyclic_sessions: bool,
         nested_session_handling: NestedSessionHandling,
         dangerously_enable_paste_buffer_read: bool,
         client_id: ClientId,
@@ -9581,6 +9710,8 @@ impl Screen {
         self.osc133_command_selection = osc133_command_selection;
         self.word_separators = word_separators;
         self.set_host_notification_protocol(host_notification_protocol);
+        self.allow_nested_sessions = allow_nested_sessions;
+        self.allow_cyclic_sessions = allow_cyclic_sessions;
         self.nested_session_handling = nested_session_handling;
         self.paste_buffer_read_enabled = dangerously_enable_paste_buffer_read;
         self.default_mode_info
@@ -11024,6 +11155,15 @@ pub(crate) fn screen_thread_main(
         nested_session_handling,
         session_id,
     );
+    screen.set_session_nesting_policy(
+        config_options.allow_nested_sessions.unwrap_or(true),
+        config_options.allow_cyclic_sessions.unwrap_or(true),
+    );
+    screen.nesting_identity = if config_options.disable_session_metadata.unwrap_or(false) {
+        None
+    } else {
+        zellij_utils::sessions::nesting_identity(&screen.session_id).ok()
+    };
     screen.default_keybinds = default_keybinds;
     screen.live_views.borrow_mut().captures = live_view_captures;
     screen.default_context_menu_config = config.context_menu.clone();
@@ -14859,6 +14999,8 @@ pub(crate) fn screen_thread_main(
                 osc133_command_selection,
                 word_separators,
                 host_notification_protocol,
+                allow_nested_sessions,
+                allow_cyclic_sessions,
                 nested_session_handling,
                 dangerously_enable_paste_buffer_read,
             } => {
@@ -14896,6 +15038,8 @@ pub(crate) fn screen_thread_main(
                         osc133_command_selection,
                         word_separators,
                         host_notification_protocol,
+                        allow_nested_sessions,
+                        allow_cyclic_sessions,
                         nested_session_handling,
                         dangerously_enable_paste_buffer_read,
                         client_id,

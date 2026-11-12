@@ -189,6 +189,19 @@ context_menu {
 //
 // nested_session_handling "ask"
 
+// Allow starting inside or hosting another Zellij session.
+// Set false to decline both ordinary nesting and cyclic attachment.
+// Default: true
+//
+// allow_nested_sessions true
+
+// Allow attaching back to a containing session.
+// Set false to decline cycles and attachments whose ancestry cannot be verified.
+// This does not disable ordinary nesting with compatible peers.
+// Default: true
+//
+// allow_cyclic_sessions true
+
 //  Send a request for a simplified ui (without arrow fonts) to plugins
 //  Options:
 //    - true

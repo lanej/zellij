@@ -387,9 +387,47 @@ impl InputHandler {
             },
         }
     }
+    fn exit_after_nesting_refusal(&mut self, reason: String) {
+        self.send_client_instructions
+            .send(ClientInstruction::EmitNestedSessionFrame(
+                nested_session::encode_payload(&NestedSessionMessage::Bye),
+            ))
+            .unwrap();
+        self.exit(ExitReason::Error(reason));
+    }
+
     fn handle_nested_session_frame_from_host(&mut self, payload_bytes: Vec<u8>) {
         self.nested_reannounce.note_host_contact();
         let decoded = nested_session::decode_payload(&payload_bytes);
+        if let Some(NestedSessionMessage::Refused { reason }) = decoded.as_ref() {
+            self.should_exit = true;
+            self.exit_after_nesting_refusal(reason.clone());
+            return;
+        }
+        if let Some(
+            NestedSessionMessage::AnnounceAck {
+                ancestry,
+                ancestry_ids,
+                ..
+            }
+            | NestedSessionMessage::AncestryUpdate {
+                ancestry,
+                ancestry_ids,
+            },
+        ) = decoded.as_ref()
+        {
+            if let Some(reason) = nested_session::attachment_refusal(
+                self.options.allow_nested_sessions,
+                self.options.allow_cyclic_sessions,
+                ancestry,
+                self.nested_reannounce.session_id(),
+                ancestry_ids,
+            ) {
+                self.should_exit = true;
+                self.exit_after_nesting_refusal(reason.to_owned());
+                return;
+            }
+        }
         if let Some(message) = decoded.as_ref() {
             self.os_input.note_host_message(message);
         }
@@ -447,16 +485,6 @@ impl InputHandler {
                 should_break = true;
             },
             Action::Detach => {
-                self.os_input.send_to_server(ClientToServerMsg::Action {
-                    action,
-                    terminal_id: None,
-                    client_id,
-                    is_cli_client: false,
-                });
-                self.exit(ExitReason::NormalDetached);
-                should_break = true;
-            },
-            Action::SwitchSession { .. } => {
                 self.os_input.send_to_server(ClientToServerMsg::Action {
                     action,
                     terminal_id: None,
@@ -546,4 +574,59 @@ pub(crate) fn input_loop(
         nested_reannounce,
     )
     .handle_input();
+}
+
+#[cfg(all(test, feature = "web_server_capability"))]
+mod nested_policy_tests {
+    use super::*;
+    use crate::unit::terminal_loop_tests::TestClientOsApi;
+    use zellij_utils::channels;
+
+    #[test]
+    fn nested_policy_native_refusal_sends_goodbye_before_error() {
+        for message in [
+            NestedSessionMessage::Refused {
+                reason: "Host disabled nesting".to_owned(),
+            },
+            NestedSessionMessage::AnnounceAck {
+                ancestry: vec!["host".to_owned()],
+                ancestry_ids: vec!["host-id".to_owned()],
+                capabilities: vec![],
+                descend_keys: vec![],
+            },
+        ] {
+            let (_stdin_tx, stdin_rx) = tokio::sync::mpsc::unbounded_channel();
+            let (_signal_tx, signal_rx) = tokio::sync::mpsc::unbounded_channel();
+            let os_input = TestClientOsApi::new(stdin_rx, signal_rx);
+            let reannounce =
+                NestedReannounce::spawn(Box::new(os_input.clone()), "guest".to_owned(), None);
+            let (sender, received) = channels::unbounded();
+            let (_input_sender, input_receiver) = channels::unbounded();
+            let mut handler = InputHandler::new(
+                Box::new(os_input),
+                CommandIsExecuting::new(),
+                Config::default(),
+                Options {
+                    allow_nested_sessions: Some(false),
+                    ..Default::default()
+                },
+                SenderWithContext::new(sender),
+                InputMode::Normal,
+                input_receiver,
+                reannounce.clone(),
+            );
+            handler.handle_nested_session_frame_from_host(nested_session::encode_payload(&message));
+            assert!(handler.should_exit);
+            let (instruction, _) = received.try_recv().unwrap();
+            assert!(
+                matches!(instruction, ClientInstruction::EmitNestedSessionFrame(bytes) if nested_session::decode_payload(&bytes) == Some(NestedSessionMessage::Bye))
+            );
+            let (instruction, _) = received.try_recv().unwrap();
+            assert!(matches!(
+                instruction,
+                ClientInstruction::Exit(ExitReason::Error(_))
+            ));
+            reannounce.stop();
+        }
+    }
 }

@@ -5607,6 +5607,8 @@ setting_keys! {
     DangerouslyAllowWebServingWithoutACertificate => (TopLevel, "dangerously_allow_web_serving_without_a_certificate", true, Flag),
     PostCommandDiscoveryHook => (TopLevel, "post_command_discovery_hook", false, Text),
     ClientAsyncWorkerTasks => (TopLevel, "client_async_worker_tasks", true, Number),
+    AllowNestedSessions => (TopLevel, "allow_nested_sessions", false, Flag),
+    AllowCyclicSessions => (TopLevel, "allow_cyclic_sessions", false, Flag),
     NestedSessionHandling => (TopLevel, "nested_session_handling", false, Text),
     DangerouslyEnablePasteBufferRead => (TopLevel, "dangerously_enable_paste_buffer_read", false, Flag),
     SessionIndicator => (TopLevel, "session_indicator", false, Flag),

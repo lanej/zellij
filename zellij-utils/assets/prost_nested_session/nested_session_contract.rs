@@ -2,7 +2,7 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NestedSessionMessage {
-    #[prost(oneof="nested_session_message::Payload", tags="1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18")]
+    #[prost(oneof="nested_session_message::Payload", tags="1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19")]
     pub payload: ::core::option::Option<nested_session_message::Payload>,
 }
 /// Nested message and enum types in `NestedSessionMessage`.
@@ -40,11 +40,15 @@ pub mod nested_session_message {
         RequestGuestKeybinds(super::RequestGuestKeybinds),
         #[prost(message, tag="18")]
         GuestKeybindsReply(super::GuestKeybindsReply),
+        #[prost(message, tag="19")]
+        Refused(super::Refused),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Announce {
+    #[prost(string, optional, tag="3")]
+    pub session_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, tag="1")]
     pub session_name: ::prost::alloc::string::String,
     #[prost(enumeration="NestedCapability", repeated, tag="2")]
@@ -68,11 +72,19 @@ pub struct Pong {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Refused {
+    #[prost(string, tag="1")]
+    pub reason: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Bye {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AnnounceAck {
+    #[prost(string, repeated, tag="4")]
+    pub ancestry_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, repeated, tag="1")]
     pub ancestry: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(enumeration="NestedCapability", repeated, tag="2")]
@@ -107,6 +119,8 @@ pub struct FullscreenState {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AncestryUpdate {
+    #[prost(string, repeated, tag="2")]
+    pub ancestry_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, repeated, tag="1")]
     pub ancestry: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }

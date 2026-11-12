@@ -3531,6 +3531,12 @@ impl Options {
         let word_separators =
             kdl_property_first_arg_as_string_or_error!(kdl_options, "word_separators")
                 .map(|(separators, _entry)| separators.to_string());
+        let allow_nested_sessions =
+            kdl_property_first_arg_as_bool_or_error!(kdl_options, "allow_nested_sessions")
+                .map(|(v, _)| v);
+        let allow_cyclic_sessions =
+            kdl_property_first_arg_as_bool_or_error!(kdl_options, "allow_cyclic_sessions")
+                .map(|(v, _)| v);
         let nested_session_handling = match kdl_property_first_arg_as_string_or_error!(
             kdl_options,
             "nested_session_handling"
@@ -3670,6 +3676,8 @@ impl Options {
             post_command_discovery_hook,
             client_async_worker_tasks,
             nested_session_handling,
+            allow_nested_sessions,
+            allow_cyclic_sessions,
             dangerously_enable_paste_buffer_read,
             session_indicator,
             swap_layout_notification,
@@ -6005,6 +6013,16 @@ impl Options {
             self.dangerously_enable_paste_buffer_read_to_kdl(add_comments)
         {
             nodes.push(dangerously_enable_paste_buffer_read);
+        }
+        for (name, value) in [
+            ("allow_nested_sessions", self.allow_nested_sessions),
+            ("allow_cyclic_sessions", self.allow_cyclic_sessions),
+        ] {
+            if let Some(value) = value {
+                let mut node = KdlNode::new(name);
+                node.push(KdlValue::Bool(value));
+                nodes.push(node);
+            }
         }
         if let Some(nested_session_handling) = self.nested_session_handling_to_kdl(add_comments) {
             nodes.push(nested_session_handling);
@@ -11648,4 +11666,35 @@ fn hide_scroll_indicator_when_idle_rejects_non_boolean_values() {
             .unwrap();
         assert!(Options::from_kdl(&document).is_err());
     }
+}
+
+#[test]
+fn nested_policy_config_round_trips_and_cli_overrides_explicit_values() {
+    for (nested, cycles) in [(true, true), (true, false), (false, true), (false, false)] {
+        let document: KdlDocument =
+            format!("allow_nested_sessions {nested}\nallow_cyclic_sessions {cycles}")
+                .parse()
+                .unwrap();
+        let options = Options::from_kdl(&document).unwrap();
+        assert_eq!(options.allow_nested_sessions, Some(nested));
+        assert_eq!(options.allow_cyclic_sessions, Some(cycles));
+        let mut serialized = KdlDocument::new();
+        *serialized.nodes_mut() = options.to_kdl(false);
+        assert_eq!(options, Options::from_kdl(&serialized).unwrap());
+        let overrides = Options {
+            allow_nested_sessions: Some(!nested),
+            allow_cyclic_sessions: Some(!cycles),
+            ..Default::default()
+        };
+        let merged = options.merge_from_cli(overrides.clone());
+        assert_eq!(merged.allow_nested_sessions, Some(!nested));
+        assert_eq!(merged.allow_cyclic_sessions, Some(!cycles));
+        let merged = options.merge(overrides);
+        assert_eq!(merged.allow_nested_sessions, Some(!nested));
+        assert_eq!(merged.allow_cyclic_sessions, Some(!cycles));
+    }
+    assert!(
+        Options::from_kdl(&r#"allow_nested_sessions "false""#.parse::<KdlDocument>().unwrap())
+            .is_err()
+    );
 }

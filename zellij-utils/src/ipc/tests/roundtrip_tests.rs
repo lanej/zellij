@@ -570,6 +570,8 @@ fn test_client_messages() {
                 word_separators: Some("[]{}<>():".to_owned()),
                 host_notification_protocol: Some(HostNotificationProtocol::Osc99),
                 nested_session_handling: Some(NestedSessionHandling::Fullscreen),
+                allow_nested_sessions: Some(true),
+                allow_cyclic_sessions: Some(true),
                 dangerously_enable_paste_buffer_read: Some(true),
                 session_indicator: Some(true),
                 swap_layout_notification: Some(false),
@@ -789,6 +791,8 @@ fn test_client_messages() {
         cli_assets: CliAssets {
             configuration_options: Some(Options {
                 nested_session_handling: Some(NestedSessionHandling::Ask),
+                allow_nested_sessions: Some(false),
+                allow_cyclic_sessions: Some(false),
                 ..Default::default()
             }),
             ..Default::default()

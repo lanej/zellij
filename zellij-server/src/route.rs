@@ -1792,7 +1792,6 @@ fn route_action_with_origin(
                 senders
                     .send_to_server(instruction)
                     .with_context(err_context)?;
-                should_break = true;
             } else {
                 drop(completion_tx); // no need to wait, this is a no-op
             }
@@ -2952,6 +2951,49 @@ macro_rules! send_to_screen_priority_or_retry_queue {
     }};
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum NestedHostRouting {
+    Forwarded,
+    Retry,
+    Ignored,
+}
+
+fn route_nested_host_message(
+    session_state: &RwLock<SessionState>,
+    senders: Option<&ThreadSenders>,
+    client_id: ClientId,
+    message: zellij_utils::nested_session::NestedSessionMessage,
+) -> Result<NestedHostRouting> {
+    use zellij_utils::nested_session::NestedSessionMessage;
+    // rationale(lifecycle): Registration and enqueue share a lock so removal cannot overtake an accepted frame.
+    let mut state = session_state
+        .write()
+        .to_anyhow()
+        .context("failed to lock nested-session client state")?;
+    if !state.clients.contains_key(&client_id) {
+        return Ok(NestedHostRouting::Ignored);
+    }
+    if let NestedSessionMessage::AnnounceAck {
+        ancestry,
+        ancestry_ids,
+        ..
+    }
+    | NestedSessionMessage::AncestryUpdate {
+        ancestry,
+        ancestry_ids,
+    } = &message
+    {
+        state.note_client_ancestry(client_id, ancestry, ancestry_ids);
+    }
+    let Some(senders) = senders else {
+        return Ok(NestedHostRouting::Retry);
+    };
+    senders
+        .send_to_screen(ScreenInstruction::NestedSessionMessageFromHost { client_id, message })
+        .context("failed to enqueue nested-session host input")?;
+    Ok(NestedHostRouting::Forwarded)
+}
+
 pub(crate) fn route_thread_main(
     session_data: Arc<RwLock<Option<SessionMetaData>>>,
     session_state: Arc<RwLock<SessionState>>,
@@ -3709,61 +3751,26 @@ pub(crate) fn route_thread_main(
                         },
                         ClientToServerMsg::NestedSessionFrameFromHost { ref payload_bytes } => {
                             match zellij_utils::nested_session::decode_payload(payload_bytes) {
-                                Some(message @ zellij_utils::nested_session::NestedSessionMessage::AnnounceAck { .. }) => {
-                                    let _ = send_to_screen_or_retry_queue!(
-                                        senders,
-                                        ScreenInstruction::NestedSessionMessageFromHost { client_id, message },
-                                        instruction,
-                                        retry_queue
-                                    );
-                                },
-                                Some(message @ zellij_utils::nested_session::NestedSessionMessage::FocusGained { .. }) => {
-                                    let _ = send_to_screen_or_retry_queue!(
-                                        senders,
-                                        ScreenInstruction::NestedSessionMessageFromHost { client_id, message },
-                                        instruction,
-                                        retry_queue
-                                    );
-                                },
-                                Some(message @ zellij_utils::nested_session::NestedSessionMessage::FocusLost) => {
-                                    let _ = send_to_screen_or_retry_queue!(
-                                        senders,
-                                        ScreenInstruction::NestedSessionMessageFromHost { client_id, message },
-                                        instruction,
-                                        retry_queue
-                                    );
-                                },
-                                Some(message @ zellij_utils::nested_session::NestedSessionMessage::ShortcutUpdate { .. }) => {
-                                    let _ = send_to_screen_or_retry_queue!(
-                                        senders,
-                                        ScreenInstruction::NestedSessionMessageFromHost { client_id, message },
-                                        instruction,
-                                        retry_queue
-                                    );
-                                },
-                                Some(message @ zellij_utils::nested_session::NestedSessionMessage::FullscreenState { .. }) => {
-                                    let _ = send_to_screen_or_retry_queue!(
-                                        senders,
-                                        ScreenInstruction::NestedSessionMessageFromHost { client_id, message },
-                                        instruction,
-                                        retry_queue
-                                    );
-                                },
-                                Some(message @ zellij_utils::nested_session::NestedSessionMessage::RequestGuestKeybinds { .. }) => {
-                                    let _ = send_to_screen_or_retry_queue!(
-                                        senders,
-                                        ScreenInstruction::NestedSessionMessageFromHost { client_id, message },
-                                        instruction,
-                                        retry_queue
-                                    );
-                                },
-                                Some(message @ zellij_utils::nested_session::NestedSessionMessage::AncestryUpdate { .. }) => {
-                                    let _ = send_to_screen_or_retry_queue!(
-                                        senders,
-                                        ScreenInstruction::NestedSessionMessageFromHost { client_id, message },
-                                        instruction,
-                                        retry_queue
-                                    );
+                                Some(message @ (
+                                    zellij_utils::nested_session::NestedSessionMessage::AnnounceAck { .. }
+                                    | zellij_utils::nested_session::NestedSessionMessage::FocusGained { .. }
+                                    | zellij_utils::nested_session::NestedSessionMessage::FocusLost
+                                    | zellij_utils::nested_session::NestedSessionMessage::ShortcutUpdate { .. }
+                                    | zellij_utils::nested_session::NestedSessionMessage::FullscreenState { .. }
+                                    | zellij_utils::nested_session::NestedSessionMessage::RequestGuestKeybinds { .. }
+                                    | zellij_utils::nested_session::NestedSessionMessage::AncestryUpdate { .. }
+                                )) => {
+                                    if route_nested_host_message(
+                                        &session_state,
+                                        senders.as_ref(),
+                                        client_id,
+                                        message,
+                                    )? == NestedHostRouting::Retry {
+                                        log::warn!("Server not ready, trying to place instruction in retry queue...");
+                                        if let Some(retry_queue) = retry_queue.as_mut() {
+                                            retry_queue.push_back(instruction);
+                                        }
+                                    }
                                 },
                                 Some(message) => {
                                     log::debug!(
@@ -4431,6 +4438,98 @@ fn type_into_popup(senders: &ThreadSenders, client_id: ClientId, chars: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nested_host_routing_tracks_pending_removed_and_reused_clients() {
+        use zellij_utils::{channels, nested_session::NestedSessionMessage};
+        let state = RwLock::new(SessionState::new());
+        let client_id = state.write().unwrap().new_client();
+        assert!(matches!(
+            state.read().unwrap().clients.get(&client_id),
+            Some(None)
+        ));
+        let (sender, receiver) = channels::unbounded();
+        let senders = ThreadSenders {
+            to_screen: Some(SenderWithContext::new(sender)),
+            ..Default::default()
+        };
+        let ack = NestedSessionMessage::AnnounceAck {
+            ancestry_ids: vec![],
+            ancestry: vec!["host".to_owned()],
+            capabilities: vec![],
+            descend_keys: vec![],
+        };
+        assert_eq!(
+            route_nested_host_message(&state, Some(&senders), client_id, ack.clone()).unwrap(),
+            NestedHostRouting::Forwarded
+        );
+        assert!(matches!(receiver.try_recv().unwrap().0,
+            ScreenInstruction::NestedSessionMessageFromHost { client_id: id, .. } if id == client_id));
+        assert_eq!(
+            state
+                .read()
+                .unwrap()
+                .client_session_ancestries
+                .get(&client_id),
+            Some(&vec!["host".to_owned()])
+        );
+        let _ = state.write().unwrap().remove_client(client_id);
+        for message in [
+            ack.clone(),
+            NestedSessionMessage::AncestryUpdate {
+                ancestry_ids: vec![],
+                ancestry: vec!["stale".to_owned()],
+            },
+        ] {
+            assert_eq!(
+                route_nested_host_message(&state, Some(&senders), client_id, message).unwrap(),
+                NestedHostRouting::Ignored
+            );
+        }
+        assert!(receiver.is_empty());
+        assert!(state.read().unwrap().client_session_ancestries.is_empty());
+        let reused_id = {
+            let mut state = state.write().unwrap();
+            state.next_client_id = ClientId::MAX;
+            state.new_client()
+        };
+        assert_eq!(reused_id, client_id);
+        assert_eq!(
+            route_nested_host_message(&state, Some(&senders), reused_id, ack).unwrap(),
+            NestedHostRouting::Forwarded
+        );
+        assert!(matches!(receiver.try_recv().unwrap().0,
+            ScreenInstruction::NestedSessionMessageFromHost { client_id: id, .. } if id == reused_id));
+    }
+
+    #[test]
+    fn nested_host_retry_rechecks_registration_before_forwarding() {
+        use zellij_utils::{channels, nested_session::NestedSessionMessage};
+        let state = RwLock::new(SessionState::new());
+        let client_id = state.write().unwrap().new_client();
+        let message = NestedSessionMessage::AnnounceAck {
+            ancestry_ids: vec![],
+            ancestry: vec!["host".to_owned()],
+            capabilities: vec![],
+            descend_keys: vec![],
+        };
+        assert_eq!(
+            route_nested_host_message(&state, None, client_id, message.clone()).unwrap(),
+            NestedHostRouting::Retry
+        );
+        let _ = state.write().unwrap().remove_client(client_id);
+        let (sender, receiver) = channels::unbounded();
+        let senders = ThreadSenders {
+            to_screen: Some(SenderWithContext::new(sender)),
+            ..Default::default()
+        };
+        assert_eq!(
+            route_nested_host_message(&state, Some(&senders), client_id, message).unwrap(),
+            NestedHostRouting::Ignored
+        );
+        assert!(receiver.is_empty());
+        assert!(state.read().unwrap().client_session_ancestries.is_empty());
+    }
 
     fn write_key(bare_key: BareKey, modifiers: &[KeyModifier], bytes: Vec<u8>) -> Action {
         let key = zellij_utils::data::KeyWithModifier::new_with_modifiers(
