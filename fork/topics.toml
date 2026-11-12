@@ -200,10 +200,11 @@ fork_review_pr = 9
 fork_review_validated_base = "6647ab291f68c5154dfc4bcceab07b659a2d0efd"
 fork_review_required_base = "6647ab291f68c5154dfc4bcceab07b659a2d0efd"
 fork_review_ci = "https://github.com/lanej/zellij/actions/runs/43245834256"
-fork_review_state = "review-ci-pending"
-fork_review_ci_state = "in-progress"
+fork_review_state = "ready-for-review"
+fork_review_ci_state = "success"
 fork_review_head = "9874779873ae72aa5e40f0cd1d29208fe148081e"
-fork_review_clippy = "native-libraries-pass-with-warnings"
+fork_review_clippy = "native-server-utils-libraries-pass-with-warnings"
+fork_review_checks = ["full-server-utils-libraries", "fixture-wasm-build", "four-plugin-api-integration-tests", "clients-and-keyboard-copy-integration", "generated-contracts", "rustfmt", "native-clippy-with-warnings", "independent-review"]
 scope_note = "External-plugin API plus the existing literal-operation test fixture; no optional plugin implementation, installation, or keymaps."
 
 [[topics]]
