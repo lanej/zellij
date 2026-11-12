@@ -146,6 +146,9 @@ impl State {
         for seconds in self.tab_bar.take_timer_requests() {
             self.timers.start(TimerOwner::TabBar, seconds);
         }
+        if self.tab_bar.take_title_timer_request() {
+            self.timers.start(TimerOwner::TabTitles, 1.0);
+        }
         for seconds in self.status_bar.take_timer_requests() {
             self.timers.start(TimerOwner::StatusBar, seconds);
         }
@@ -161,6 +164,7 @@ impl State {
                     RenderResponse::Nothing
                 }
             },
+            Some(TimerOwner::TabTitles) => self.tab_bar.refresh_title_ownership(),
             Some(TimerOwner::StatusBar) if self.status_bar.has_slots() => {
                 self.status_bar.update(event, context)
             },
