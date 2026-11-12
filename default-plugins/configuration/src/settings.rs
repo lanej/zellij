@@ -955,6 +955,20 @@ fn describe_entry(key: SettingKey) -> SettingInfo {
             "the key that opens the inbox, F9 if there is none",
             Everyone,
         ),
+        SettingKey::AllowNestedSessions => info(
+            "Allow nested sessions",
+            "Allow starting inside or hosting another Zellij session",
+            Toggle,
+            "true",
+            Everyone,
+        ),
+        SettingKey::AllowCyclicSessions => info(
+            "Allow cyclic attachment",
+            "Allow attaching back to a containing session",
+            Toggle,
+            "true",
+            Everyone,
+        ),
         SettingKey::NestedSessionHandling => info(
             "Nested sessions",
             "What to do with a Zellij session inside a pane",
@@ -1833,7 +1847,9 @@ pub fn placement(key: SettingKey) -> (Category, &'static str) {
         ShowStartupTips | ShowReleaseNotes => (C::General, "Startup"),
         OnQuit | OnForceClose => (C::General, "Quitting"),
         DefaultShell | DefaultCwd | DefaultLayout => (C::General, "Starting points"),
-        NestedSessionHandling => (C::General, "Nested sessions"),
+        NestedSessionHandling | AllowNestedSessions | AllowCyclicSessions => {
+            (C::General, "Nested sessions")
+        },
         Theme | ThemeDark | ThemeLight | ExplicitThemeHue => (C::Appearance, "Theme"),
         SimplifiedUi | VisualBell => (C::Appearance, "Interface"),
         PaneFrames
