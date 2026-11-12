@@ -148,12 +148,12 @@ fork_review_pr = 7
 fork_review_validated_base = "6647ab291f68c5154dfc4bcceab07b659a2d0efd"
 fork_review_required_base = "6647ab291f68c5154dfc4bcceab07b659a2d0efd"
 fork_review_ci = "https://github.com/lanej/zellij/actions/runs/43247295523"
-fork_review_state = "draft-policy-review-ci-pending"
-fork_review_ci_state = "in-progress"
+fork_review_state = "draft-policy-review"
+fork_review_ci_state = "success"
 fork_review_head = "bd1567963ea34315a3a81409455e26f9d787ab92"
 policy_branch = "feature/configurable-session-nesting"
 fork_review_clippy = "native-libraries-and-cli-pass-with-warnings"
-fork_review_checks = ["rustfmt", "independent-review", "122-nesting-tests", "41-lifecycle-state-tests", "nine-config-setting-tests", "ipc-contract-roundtrip", "whole-app-top-level-reconnect-metadata-on-off"]
+fork_review_checks = ["full-native-libraries", "configuration-package", "clients-keyboard-copy-policy-integration", "generated-contracts", "rustfmt", "native-clippy-with-warnings", "independent-review"]
 scope_note = "Separate lifecycle correctness from opt-in nesting policy before upstream submission; do not submit the preserved mandatory-guard candidate."
 
 [[topics]]
