@@ -74,19 +74,30 @@ Checkpoint tags are immutable. Advancing a branch does not change the installer 
 
 ## Upstream candidates
 
-Eight candidates are independent of one another; the plugin API depends on the native selection capability. Keep those two capabilities as separate cohesive changes. Do not add default shortcuts or optional plugins to demonstrate the API.
+Prepare one distinct correctness fix at a time. Josh selected branch preparation only: publishing a fork branch does not authorize an upstream PR, issue, comment, or generated submission description. Keep the working runtime and stable fallback in place while shrinking the patch queue.
 
-| Candidate | Scope | Prerequisite |
+| Order | Candidate | Next action |
 | --- | --- | --- |
-| fix/upstream-cli-completion | Requesting-client CLI reply completion | None |
-| fix/upstream-shutdown-flush | Bounded exit-message flush | None |
-| fix/upstream-pending-initial-client | Initial registration lifecycle | None |
-| fix/upstream-atomic-permission-cache | Concurrent cache persistence | None |
-| fix/upstream-plugin-unicode | Unicode scalar conversion | None |
-| fix/upstream-popup-input | Interactive paste and explicit CLI destinations | None |
-| fix/upstream-nested-session-cycles | Held: separate lifecycle fixes from opt-in policy | None |
-| feature/upstream-keyboard-copy-mode | Native selection engine and opt-in mode | None |
-| feature/upstream-copy-mode-plugin-api | Guarded cells, labels, cursor movement and ordered capture | Native selection |
+| 1 | fix/upstream-cli-completion | Published and locally validated at d595cb99; inherited hosted validation pending |
+| Track existing | fix/upstream-plugin-unicode | Follow upstream [#5484](https://github.com/zellij-org/zellij/pull/5484) and [#5814](https://github.com/zellij-org/zellij/pull/5814); do not open a third Unicode fix |
+| Track existing | fix/upstream-clippy-output-overlap | Follow upstream [#5300](https://github.com/zellij-org/zellij/pull/5300), which repairs the missing clipping bound as well as the duplicated comparison; our deletion-only cleanup is not equivalent |
+| Next independent fixes | fix/upstream-pending-initial-client; fix/upstream-atomic-permission-cache | Reproduce and validate separately; neither depends on the CLI change |
+| Larger correctness work | fix/upstream-shutdown-flush | Review queue/flush acknowledgement and socket lifetime together; check overlap with upstream [#5709](https://github.com/zellij-org/zellij/pull/5709) before preparing a submission |
+| Larger routing work | fix/upstream-popup-input | Keep focus, explicit target, and permission/provenance behavior cohesive; do not combine with Unicode conversion |
+| Needs split | fix/upstream-nested-session-cycles | Extract the registration/lifetime repair from configurable nesting policy; retain both in the working fork meanwhile |
+| Needs contract decision | feature/upstream-keyboard-copy-mode; feature/upstream-copy-mode-plugin-api | Resolve the minimum native selection contract described above before preparing a larger upstream contribution |
+
+The CLI candidate excludes transient command sockets from the interactive completion broadcast. Each command's route thread retains responsibility for its own reply and completion. It changes no IPC schema, plugins, defaults, keymaps, or runtime installation. The related closed upstream [#5756](https://github.com/zellij-org/zellij/pull/5756) concerns blocking new-pane completion; closure alone is not evidence of maintainer rejection of this distinct query fix.
+
+The prepared CLI head is d595cb99f8332412b5c933a1c9869ce580ff3113, based on upstream d9df94cca1ebf5819a8c6e1dcdc872cb512fed91. The previous published head 21f85437 is preserved by annotated tag fork-checkpoint/upstream-cli-completion-before-refresh-2026-11-11. The final diff changes only zellij-server/src/lib.rs and zellij-integration-tests/tests/clients.rs (109 additions, one deletion); the production change is nine additions and one deletion. No PR is open for this branch.
+
+Independent review found that keyboard pane closure bypassed the faulty broadcast; the regression now uses natural process exit. On unchanged upstream, cli_query_ignores_completion_from_another_panes_exit fails specifically with `unrelated pane exit completed the CLI query: UnblockInputThread`. With the fix, all 15 clients integration tests pass on macOS/aarch64, including the query's own reply/completion and continued interactive input; cargo fmt --all -- --check passes. The test waits for an interactive acknowledgement counter increase, which is not uniquely correlated to this broadcast; the baseline failure establishes sensitivity for the exercised schedule.
+
+Reproduce the scoped suite with the repository's Rust 1.95.0 toolchain: `env -u CARGO_TARGET_DIR CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test --locked -p zellij-integration-tests --test clients --features zellij-utils/vendored_curl --target aarch64-apple-darwin`. Append the regression name and `-- --exact` to isolate it. To repeat the upstream sensitivity check in an isolated checkout, keep the regression and replace only zellij-server/src/lib.rs with the recorded upstream version; restore the candidate file before testing the fix.
+
+Default server-library Clippy fails with clippy::eq_op at output/mod.rs:3085 on both unchanged upstream and this candidate. The same candidate invocation with only `-- -A clippy::eq_op` passes with existing warnings; this is a diagnostic command-line exception, not a passing default Clippy check or a source suppression. The separate tracked clipping fix owns that repair. The inherited Rust workflow is running against the exact candidate in [run 43154577533](https://github.com/lanej/zellij/actions/runs/43154577533); hosted validation is pending.
+
+The existing Unicode PRs overlap the valid-scalar requirement; their handling of invalid scalars differs, so verify the eventual accepted semantics rather than expecting our patch verbatim. All three tracked upstream PRs were open when checked on 2026-11-11. Tracking an open proposal does not establish a merged fix or permit retiring its fork patch.
 
 The native selection candidate leaves shipped preset files unchanged. Existing shared keyboard/mouse rules naturally expand into the additive mode; regenerated snapshots were checked to contain only those new-mode sections, with every existing mode unchanged. Its full affected libraries pass: 2,805 server tests and 1,209 utility tests; existing ignored tests remain ignored. The two small bars changes only make enum matches exhaustive and compile on wasm32-wasip1.
 
@@ -94,7 +105,7 @@ The plugin API candidate is refreshed from the core-only fork PR. Native copy/pr
 
 The nested-session candidate passes all 76 selected server regressions, with five existing ignored tests. Review found that retaining every disconnected client ID in Screen was unbounded. The repair uses authoritative SessionState registration instead: pending handshakes remain valid, membership/ancestry/enqueue share the registration lock, removed/deferred frames are rejected, and legitimate reused IDs work. The screen tombstones were removed. The lifecycle fix is in fork PR #7. Its original mandatory cycle restriction has been superseded by opt-in policy: allow_nested_sessions and allow_cyclic_sessions default to true; setting both false declines starting or hosting nested sessions. Ordinary top-level switches and detached creation remain available. The revised behavior uses stable UUIDs, preserves unknown ancestry across mixed-version peers, and sends a departure frame before refusal teardown. The shared fork base now removes the duplicated output bounds comparison; default native-library Clippy passes on the refreshed fork PR head. The earlier independent upstream nested-session candidate is retained as historical source and is not submission-ready: separate its lifecycle fixes from the configurable policy before preparing upstream PRs.
 
-The other six independent candidates retain their earlier source/format review status; the inventory does not claim that combined-runtime tests validate each individual head. Every upstream submission still needs its own applicable checks, reproduction where relevant, maintainer policy gates, and owner-authored submission text. Larger core features should be discussed with maintainers before submission.
+Candidates outside the validated CLI scope retain their earlier source/format review status; the inventory does not claim that combined-runtime tests validate each individual head. Every upstream submission still needs its own applicable checks, reproduction where relevant, maintainer policy gates, and owner-authored submission text. Larger core features should be discussed with maintainers before submission.
 
 ## Fork PR state
 

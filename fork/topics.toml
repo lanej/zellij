@@ -6,7 +6,8 @@ next_runtime = "3c6d79d01c661320616625833042de323584bd09"
 ci_green_fallback = "aa8b83d76ebf5163f68188bd3a4630b62b251d03"
 runtime_ci = "https://github.com/lanej/zellij/actions/runs/43103289974"
 next_runtime_ci = "https://github.com/lanej/zellij/actions/runs/43103290679"
-runtime_ci_state = "in-progress"
+runtime_ci_state = "success"
+next_runtime_ci_state = "success"
 fallback_ci = "https://github.com/lanej/zellij/actions/runs/42543514823"
 upstream_scope = "core correctness and minimal capabilities required by external plugins"
 fork_goal = "temporary bridge to an official release"
@@ -14,18 +15,27 @@ core_source_audit = "d9df94cca1ebf5819a8c6e1dcdc872cb512fed91"
 
 [[topics]]
 branch = "fix/upstream-cli-completion"
+submission_order = "first-distinct-fix"
+submission_action = "prepare-branch-only"
 retirement_role = "core-correctness-candidate"
-head = "21f85437aaa843b174d564e716b7a9460a89d8e5"
+head = "d595cb99f8332412b5c933a1c9869ce580ff3113"
 capability = "CLI completion replies"
-state = "prepared-unvalidated"
+state = "locally-validated-hosted-pending"
 base = "upstream/main"
 dependencies = []
 source_commits = ["8072318b"]
-checks = ["source-diff-check", "rustfmt", "independent-structural-review"]
+checks = ["upstream-regression-fails-with-unrelated-unblock", "15-clients-tests-macos-pass", "rustfmt", "independent-code-review-approved"]
+base_commit = "d9df94cca1ebf5819a8c6e1dcdc872cb512fed91"
+checkpoint = "fork-checkpoint/upstream-cli-completion-before-refresh-2026-11-11"
+ci = "https://github.com/lanej/zellij/actions/runs/43154577533"
+ci_state = "in-progress"
+clippy = "default blocked by reproduced upstream eq_op; invocation-only exception passes with existing warnings"
 upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-shutdown-flush"
+submission_order = "larger-correctness-review"
+related_upstream_prs = ["https://github.com/zellij-org/zellij/pull/5709"]
 retirement_role = "core-correctness-candidate"
 head = "de35179804323170d4c6020c30652d9164c3ce2e"
 capability = "Bounded shutdown flush"
@@ -38,6 +48,7 @@ upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-pending-initial-client"
+submission_order = "next-independent-correctness"
 retirement_role = "core-correctness-candidate"
 head = "87c1779ed53145a1806dd14acc15a86c802e6326"
 capability = "Pending initial client registration"
@@ -51,6 +62,7 @@ upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-atomic-permission-cache"
+submission_order = "next-independent-correctness"
 retirement_role = "core-correctness-candidate"
 head = "6d96afb7dd8ac3e4564f12e5ab98449fa83de059"
 capability = "Atomic permission-cache updates"
@@ -64,6 +76,9 @@ upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-plugin-unicode"
+submission_action = "track-existing-upstream"
+upstream_prs = ["https://github.com/zellij-org/zellij/pull/5484", "https://github.com/zellij-org/zellij/pull/5814"]
+overlap_checked = "2026-11-11"
 retirement_role = "core-correctness-candidate"
 head = "1423183b6544e5c5e3e55d1c7e577353f5a68581"
 capability = "Unicode plugin key scalars"
@@ -77,6 +92,7 @@ upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-popup-input"
+submission_order = "larger-routing-review"
 retirement_role = "core-correctness-candidate"
 head = "580d19c6dd782890a3ea846c58ecdb136cd70f03"
 capability = "Focused popup paste routing"
@@ -197,6 +213,10 @@ scope_reason = "Closed fork customization; not selected for upstream submission.
 
 [[maintenance]]
 branch = "fix/upstream-clippy-output-overlap"
+submission_action = "track-existing-upstream"
+upstream_prs = ["https://github.com/zellij-org/zellij/pull/5300"]
+overlap_checked = "2026-11-11"
+overlap_note = "Existing PR restores a missing bound; our deletion-only cleanup preserves old behavior."
 retirement_role = "nonblocking-maintenance"
 head = "bc7865c96a5c2086fe7e06251fff59b07f4a9055"
 base_commit = "d9df94cca1ebf5819a8c6e1dcdc872cb512fed91"
