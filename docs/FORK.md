@@ -78,7 +78,7 @@ Prepare one distinct correctness fix at a time. Josh selected branch preparation
 
 | Order | Candidate | Next action |
 | --- | --- | --- |
-| 1 | fix/upstream-cli-completion | Published and locally validated at d595cb99; inherited hosted validation pending |
+| 1 | fix/upstream-cli-completion | Published at d595cb99; locally validated and all 12 inherited hosted jobs passed |
 | Track existing | fix/upstream-plugin-unicode | Follow upstream [#5484](https://github.com/zellij-org/zellij/pull/5484) and [#5814](https://github.com/zellij-org/zellij/pull/5814); do not open a third Unicode fix |
 | Track existing | fix/upstream-clippy-output-overlap | Follow upstream [#5300](https://github.com/zellij-org/zellij/pull/5300), which repairs the missing clipping bound as well as the duplicated comparison; our deletion-only cleanup is not equivalent |
 | Next independent fixes | fix/upstream-pending-initial-client; fix/upstream-atomic-permission-cache | Reproduce and validate separately; neither depends on the CLI change |
@@ -95,7 +95,7 @@ Independent review found that keyboard pane closure bypassed the faulty broadcas
 
 Reproduce the scoped suite with the repository's Rust 1.95.0 toolchain: `env -u CARGO_TARGET_DIR CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test --locked -p zellij-integration-tests --test clients --features zellij-utils/vendored_curl --target aarch64-apple-darwin`. Append the regression name and `-- --exact` to isolate it. To repeat the upstream sensitivity check in an isolated checkout, keep the regression and replace only zellij-server/src/lib.rs with the recorded upstream version; restore the candidate file before testing the fix.
 
-Default server-library Clippy fails with clippy::eq_op at output/mod.rs:3085 on both unchanged upstream and this candidate. The same candidate invocation with only `-- -A clippy::eq_op` passes with existing warnings; this is a diagnostic command-line exception, not a passing default Clippy check or a source suppression. The separate tracked clipping fix owns that repair. The inherited Rust workflow is running against the exact candidate in [run 43154577533](https://github.com/lanej/zellij/actions/runs/43154577533); hosted validation is pending.
+Default server-library Clippy fails with clippy::eq_op at output/mod.rs:3085 on both unchanged upstream and this candidate. The same candidate invocation with only `-- -A clippy::eq_op` passes with existing warnings; this is a diagnostic command-line exception, not a passing default Clippy check or a source suppression. The separate tracked clipping fix owns that repair. The inherited Rust workflow passed all 12 jobs against the exact candidate in [run 43154577533](https://github.com/lanej/zellij/actions/runs/43154577533), including Linux integration, Linux/macOS native tests and builds, Windows tests/build, no-web tests, formatting, bundled assets and desktop checks. This does not change the default-Clippy baseline failure or authorize runtime/stable promotion.
 
 The existing Unicode PRs overlap the valid-scalar requirement; their handling of invalid scalars differs, so verify the eventual accepted semantics rather than expecting our patch verbatim. All three tracked upstream PRs were open when checked on 2026-11-11. Tracking an open proposal does not establish a merged fix or permit retiring its fork patch.
 
