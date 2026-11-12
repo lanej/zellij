@@ -405,11 +405,14 @@ impl TabBar {
             },
             Event::TabUpdate(tabs) => {
                 if client.tabs.len() != tabs.len()
-                    || client
-                        .tabs
-                        .iter()
-                        .zip(tabs)
-                        .any(|(old, new)| old.tab_id != new.tab_id || old.name != new.name)
+                    || client.tabs.iter().zip(tabs).any(|(old, new)| {
+                        old.tab_id != new.tab_id
+                            || old.name != new.name
+                            || old.selectable_tiled_panes_count != new.selectable_tiled_panes_count
+                            || old.selectable_floating_panes_count
+                                != new.selectable_floating_panes_count
+                            || old.panes_to_hide != new.panes_to_hide
+                    })
                 {
                     client.title_query_dirty = true;
                 }
@@ -907,6 +910,74 @@ mod tests {
             },
         )]));
         assert!(bar.clients[&1].title_query_dirty);
+    }
+
+    #[test]
+    fn completed_restored_panes_retry_failed_title_ownership_without_a_rename() {
+        let mut client = client_with_tabs(&[7], 0);
+        client.mode_info.session_name = Some("main".into());
+        client.title_query_pending = true;
+        let mut bar = bar_with_line(client);
+        let event_context = EventContext {
+            client_id: Some(1),
+            slot_id: None,
+        };
+        bar.update(
+            &Event::RunCommandResult(
+                Some(1),
+                vec![],
+                vec![],
+                BTreeMap::from([("tab-title-client".into(), "1".into())]),
+            ),
+            event_context,
+        );
+        assert!(bar.clients[&1].title_ownership.is_none());
+        assert!(!bar.clients[&1].title_query_pending);
+        assert!(!bar.take_title_timer_request());
+        let unchanged = bar.clients[&1].tabs.clone();
+        bar.update(&Event::TabUpdate(unchanged.clone()), event_context);
+        assert!(!bar.clients[&1].title_query_pending);
+        let mut completed = unchanged.clone();
+        completed[0].selectable_tiled_panes_count = 1;
+        bar.update(&Event::TabUpdate(completed), event_context);
+        assert!(bar.clients[&1].title_query_pending);
+        assert_eq!(bar.clients[&1].tabs[0].name, unchanged[0].name);
+        assert_eq!(bar.clients[&1].tabs[0].tab_id, unchanged[0].tab_id);
+    }
+
+    #[test]
+    fn completed_panes_retry_after_a_pending_refresh_fails() {
+        let mut client = client_with_tabs(&[7], 0);
+        client.mode_info.session_name = Some("main".into());
+        client.title_ownership = TitleOwnership::from_result(
+            Some(0),
+            br#"{"session":"main","auto_titles":{"7":"t7"}}"#,
+            Some("main"),
+        );
+        client.title_query_pending = true;
+        let mut bar = bar_with_line(client);
+        let event_context = EventContext {
+            client_id: Some(1),
+            slot_id: None,
+        };
+        let mut completed = bar.clients[&1].tabs.clone();
+        completed[0].selectable_tiled_panes_count = 1;
+        bar.update(&Event::TabUpdate(completed), event_context);
+        assert!(bar.clients[&1].title_query_dirty);
+        assert!(bar.clients[&1].title_query_pending);
+        bar.update(
+            &Event::RunCommandResult(
+                Some(1),
+                vec![],
+                vec![],
+                BTreeMap::from([("tab-title-client".into(), "1".into())]),
+            ),
+            event_context,
+        );
+        assert!(bar.clients[&1].title_ownership.is_none());
+        assert!(bar.clients[&1].title_query_pending);
+        assert!(!bar.clients[&1].title_query_dirty);
+        assert_eq!(bar.clients[&1].tabs[0].name, "t7");
     }
 
     #[test]
