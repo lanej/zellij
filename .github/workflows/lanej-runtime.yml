@@ -29,6 +29,8 @@ jobs:
         shell: bash
     env:
       CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
       ZELLIJ_COPY_MODE_FIXTURE_WASM: ${{ github.workspace }}/target/wasm32-wasip1/release/fixture-plugin-for-tests.wasm
       CARGO_PROFILE_RELEASE_LTO: 'false'
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
@@ -53,8 +55,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: lanej-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
-          restore-keys: lanej-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
+          key: lanej-runtime-debug-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: lanej-runtime-debug-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
       - name: Build native copy API test fixture
         run: |
           rustup target add --toolchain 1.95.0 wasm32-wasip1
@@ -63,31 +65,31 @@ jobs:
         run: |
           host=$(rustup run 1.95.0 rustc -vV | sed -n 's/^host: //p')
           test -n "$host"
-          rustup run 1.95.0 cargo test --locked --release \
+          rustup run 1.95.0 cargo test --locked \
             -p zellij-server -p zellij-utils --lib --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
             --target "$host" dotfiles_
-          rustup run 1.95.0 cargo test --locked --release \
+          rustup run 1.95.0 cargo test --locked \
             -p zellij-server -p zellij-utils --lib --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
             --target "$host" scroll_indicator
-          rustup run 1.95.0 cargo test --locked --release \
+          rustup run 1.95.0 cargo test --locked \
             -p configuration --no-default-features \
             --features zellij-utils/vendored_curl,zellij-utils/web_server_capability \
             --target "$host" scroll_indicator
-          rustup run 1.95.0 cargo test --locked --release \
+          rustup run 1.95.0 cargo test --locked \
             -p zellij-integration-tests --test clients --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
             --target "$host" dotfiles_cli_query
-          rustup run 1.95.0 cargo test --locked --release \
+          rustup run 1.95.0 cargo test --locked \
             -p zellij-server -p zellij-utils --lib --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
             --target "$host" keyboard_copy
-          rustup run 1.95.0 cargo test --locked --release \
+          rustup run 1.95.0 cargo test --locked \
             -p zellij-integration-tests --test keyboard_copy --test copy_mode_plugin_api --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
             --target "$host"
-          rustup run 1.95.0 cargo test --locked --release \
+          rustup run 1.95.0 cargo test --locked \
             -p zellij-server --lib --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
             --target "$host" copy_plugin
