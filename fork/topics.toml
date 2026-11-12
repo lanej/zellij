@@ -8,10 +8,13 @@ runtime_ci = "https://github.com/lanej/zellij/actions/runs/43103289974"
 next_runtime_ci = "https://github.com/lanej/zellij/actions/runs/43103290679"
 runtime_ci_state = "in-progress"
 fallback_ci = "https://github.com/lanej/zellij/actions/runs/42543514823"
-upstream_scope = "core support required by external plugins"
+upstream_scope = "core correctness and minimal capabilities required by external plugins"
+fork_goal = "temporary bridge to an official release"
+core_source_audit = "d9df94cca1ebf5819a8c6e1dcdc872cb512fed91"
 
 [[topics]]
 branch = "fix/upstream-cli-completion"
+retirement_role = "core-correctness-candidate"
 head = "21f85437aaa843b174d564e716b7a9460a89d8e5"
 capability = "CLI completion replies"
 state = "prepared-unvalidated"
@@ -23,6 +26,7 @@ upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-shutdown-flush"
+retirement_role = "core-correctness-candidate"
 head = "de35179804323170d4c6020c30652d9164c3ce2e"
 capability = "Bounded shutdown flush"
 state = "prepared-unvalidated"
@@ -34,6 +38,7 @@ upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-pending-initial-client"
+retirement_role = "core-correctness-candidate"
 head = "87c1779ed53145a1806dd14acc15a86c802e6326"
 capability = "Pending initial client registration"
 state = "prepared-unvalidated"
@@ -46,6 +51,7 @@ upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-atomic-permission-cache"
+retirement_role = "core-correctness-candidate"
 head = "6d96afb7dd8ac3e4564f12e5ab98449fa83de059"
 capability = "Atomic permission-cache updates"
 state = "prepared-unvalidated"
@@ -58,6 +64,7 @@ upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-plugin-unicode"
+retirement_role = "core-correctness-candidate"
 head = "1423183b6544e5c5e3e55d1c7e577353f5a68581"
 capability = "Unicode plugin key scalars"
 state = "prepared-unvalidated"
@@ -70,6 +77,7 @@ upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-popup-input"
+retirement_role = "core-correctness-candidate"
 head = "580d19c6dd782890a3ea846c58ecdb136cd70f03"
 capability = "Focused popup paste routing"
 state = "prepared-unvalidated"
@@ -82,6 +90,7 @@ upstream_eligible = true
 
 [[topics]]
 branch = "fix/upstream-manager-help"
+retirement_role = "external-plugin-customization"
 head = "e34e83220fd77db211559e6b665ca3faf3444c38"
 capability = "Manager help without function keys"
 state = "fork-only"
@@ -95,6 +104,7 @@ scope_reason = "Bundled session-manager behavior is outside the upstream core-su
 
 [[topics]]
 branch = "fix/upstream-nested-session-cycles"
+retirement_role = "extract-lifetime-fix-and-separate-nesting-policy"
 head = "6fa588a6f173df6764ab617b970f8e8dd3612702"
 capability = "Nested-session cycle guard"
 state = "needs-policy-split"
@@ -116,6 +126,7 @@ scope_note = "Separate lifecycle correctness from opt-in nesting policy before u
 
 [[topics]]
 branch = "feature/upstream-scroll-indicators"
+retirement_role = "optional-native-customization"
 head = "9573f4a0e320bc3e74e4e655a92201239b482295"
 capability = "Configurable idle scroll indicators"
 state = "fork-only"
@@ -129,6 +140,7 @@ scope_reason = "Cosmetic native/configuration UI customization remains fork-only
 
 [[topics]]
 branch = "feature/upstream-keyboard-copy-mode"
+retirement_role = "native-selection-boundary-needs-feasibility-decision"
 head = "ecb67700f44dc9e4dff4bb7dc387b1608f4f2f28"
 capability = "Native keyboard copy mode"
 state = "validated-core-candidate"
@@ -142,6 +154,7 @@ scope_note = "No shipped shortcuts or preset changes; only required existing-bar
 
 [[topics]]
 branch = "feature/upstream-copy-mode-plugin-api"
+retirement_role = "native-selection-boundary-needs-feasibility-decision"
 head = "89ab1a04fb33939ea73a1af8cd52c9e96585e610"
 capability = "Native copy-mode plugin controls"
 state = "validated-core-candidate"
@@ -161,6 +174,7 @@ scope_note = "External-plugin API plus the existing literal-operation test fixtu
 
 [[topics]]
 branch = "feature/upstream-copy-hop"
+retirement_role = "external-plugin"
 head = "f04ec1b658568554a816a59c35a4b7d84478372c"
 capability = "Hop labeled character jumps"
 state = "fork-only"
@@ -174,6 +188,7 @@ scope_reason = "User plugin implementation and keymap policy belong outside the 
 
 [[topics]]
 branch = "feat/compact-agent-pane-titles"
+retirement_role = "optional-native-customization"
 head = "51fa87f0fb2a357a5d2c7f62224b945e9dbec69f"
 state = "closed-preserved"
 note = "Fork PR #2 was closed; not selected for integration or upstream preparation."
@@ -182,6 +197,7 @@ scope_reason = "Closed fork customization; not selected for upstream submission.
 
 [[maintenance]]
 branch = "fix/upstream-clippy-output-overlap"
+retirement_role = "nonblocking-maintenance"
 head = "bc7865c96a5c2086fe7e06251fff59b07f4a9055"
 base_commit = "d9df94cca1ebf5819a8c6e1dcdc872cb512fed91"
 capability = "Remove duplicate overlap comparison blocking default Clippy"

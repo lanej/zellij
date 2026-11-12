@@ -16,11 +16,51 @@ This guide and [fork/topics.toml](../fork/topics.toml) live on fork-maintenance,
 
 Contribution branches exchange only their capability's code, tests, and relevant public documentation. Fork CI, this guide, the inventory, integration conflict resolutions, and local AGENTS.md remain within fork maintenance/integration. A PR based on lanej-runtime or lanej-runtime-next is a fork integration review; those branches are unsuitable bases for independent upstream PRs.
 
-## Upstream scope
+## Fork retirement and core requirements
 
-The upstream queue contains core fixes and capabilities required by external plugins. User plugin implementations, matching/label-assignment policy, installation, and keymaps remain outside that queue. Required exhaustive-match compatibility in existing plugins and literal-operation test fixtures are integration requirements, not new shipped plugin features.
+The fork is a temporary bridge. The goal is an official Zellij release that supports Josh's required workflows, with personal behavior implemented in external plugins, helpers and configuration. A merged fork PR is integration history, not an upstream requirement. Each retained patch needs an exit: an upstream equivalent, a verified external alternative, or an explicit decision to relinquish that behavior. Preserve the working runtime while resolving those exits.
 
-Session-manager help, Hop, scroll-indicator customization, and compact agent titles remain preserved fork/external-plugin work. Do not submit those branches as part of the current upstream effort.
+The source audit below was checked against upstream main d9df94cca1ebf5819a8c6e1dcdc872cb512fed91. All previously recorded validation applies only to its recorded heads; this audit revalidates no patch behavior against current upstream. Reproduce and test each candidate independently before submission.
+
+| Core correctness candidate | User workflow / contract | Why core owns it | Existing topic |
+| --- | --- | --- | --- |
+| Request-scoped CLI completion | Helpers must receive completion for their own action | Server broadcasts must exclude transient CLI clients; the caller cannot repair an unrelated acknowledgement after it arrives | fix/upstream-cli-completion |
+| Flush exit messages before teardown | Session shutdown must release connected callers cleanly | The server owns queued socket writes and connection destruction | fix/upstream-shutdown-flush |
+| Preserve initial client identity | Startup must survive concurrent helper/CLI connections | Screen registration and initial layout attachment must identify the actual first client | fix/upstream-pending-initial-client |
+| Atomic permission-cache updates | Concurrent sessions must preserve grants and avoid replaying revoked grants | Zellij owns the shared permission store and its transaction boundary | fix/upstream-atomic-permission-cache |
+| Preserve Unicode key scalars | External plugins must receive the typed character intact | The core/plugin protocol decoder currently truncates a scalar through u8 | fix/upstream-plugin-unicode |
+| Route popup input with focus and provenance | The command prompt must receive interactive paste/keys while explicit CLI writes retain their target | Core routing chooses whether input reaches a popup, a pane or a permission prompt before the external plugin can act | fix/upstream-popup-input |
+| Bind nested host frames to client lifetime | Late/retried transport frames must not mutate a removed client's state | Registration, disconnect and enqueue are server-owned; pending handshakes and legitimate ID reuse must remain valid | Extract from PR #7; independent upstream reproduction and validation still needed |
+
+These repair existing contracts; they do not require shipping a plugin implementation or defining new user policy. They are candidates for the small-fix queue, not seven demonstrated mandatory fork dependencies. The user-facing workflow must still justify retaining each patch if upstream behavior changes or a tested alternative removes the dependency.
+
+### Native keyboard selection is the main capability decision
+
+Upstream already exposes pane/full-scrollback reading (including viewport, selection endpoints and application cursor), key interception, configured clipboard copying, action execution and completion, and regex highlights. Pane navigation already uses released zellij-tile 0.45.1. The external command prompt's UI, fuzzy/path completion and keymaps do not themselves require new core implementations.
+
+The missing safe contract for keyboard selection in the original native pane is narrower than requiring the entire current Vim engine:
+
+- An owned selection session with stable pane/text identity and bounded reads; reflow, disconnect and output recovery must have defined outcomes.
+- Authoritative grapheme/display-cell and logical-line/soft-wrap geometry, with cursor and selection anchor.
+- Atomic, owner- and token-checked native cursor/selection updates, preserving native selection rendering and text extraction.
+- Reliable input ownership and release, preserving popup precedence. Assess existing interception and action completion before adding another capture/ordering protocol.
+- Exact-cell text labels only when supporting Hop overlays on the original pane. Regex styling cannot draw arbitrary labels; basic keyboard selection does not require labels.
+
+Vim motions, counts, word rules, selection-mode policy, Hop matching, label assignment and keymaps can conceptually live in an external plugin. The current native engine is a tested implementation, not proof that upstream must accept that exact boundary. Likewise, the current PR #9 API depends on the engine and exposes visible-cell navigation hooks; it is not yet a proven complete replacement interface for moving the engine out of core. Prototype the smaller native selection contract before changing the working implementation or representing it as sufficient.
+
+A plugin-owned scrollback viewer would change the requested native in-pane experience. Synthetic MouseEvent actions inherit mousebindings, application reporting, timing, pane coordinates and live-output races; they are an unproven compatibility shim, not an established substitute for Josh's keyboard-only requirement.
+
+### Nesting preference is separate from lifecycle correctness
+
+The attach helper already rejects starting inside Zellij through its normal path. That does not cover direct invocations or hosting remote nested guests, so it is not equivalent to Josh's requested client-and-host refusal. Full cooperative host enforcement requires a core/client handshake capability. Disabling all nesting also prevents cyclic attachment; independent cycle-only restrictions and their persistent identity machinery are additional scope, not prerequisites for declining all nesting.
+
+Keep that preference separate from the host-frame lifetime fix. Preserve upstream's existing defaults, and do not treat upstream acceptance of the whole PR #7 policy/identity implementation as the only possible exit. The current SSH helper intentionally launches remote Zellij inside a local tab when already in Zellij; adopting full host refusal also needs a nonnested launch path for that workflow. Older guests can ignore the additive refusal frame, as documented in the policy's compatibility notes.
+
+### Outside the exit-critical core queue
+
+Keep the command prompt, pane-navigation behavior, Hop implementation, completion/matching rules, agent-title policy, keymaps and installation choices external. Native frame cosmetics such as idle scroll counters still need native changes if their exact appearance is retained, but are optional customization rather than plugin-enabling capabilities. Session-manager help and compact-title branches remain preserved outside the upstream core queue. The duplicate-comparison Clippy fix is useful maintenance, not a runtime capability blocking a return to official releases.
+
+The next upstream work should prioritize independently reproduced correctness fixes and resolve the native selection contract with maintainers. Keep required exhaustive-match compatibility and minimal fixtures where a core change needs them; do not ship optional/default plugin implementations to demonstrate a capability. Larger core work still requires maintainer willingness and owner-authored upstream submission text under CONTRIBUTING.md.
 
 ## Checkpoints as of 2026-11-11
 
