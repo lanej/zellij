@@ -85,6 +85,8 @@ fn every_option_set() -> Options {
         post_command_discovery_hook: Some("echo hook".to_owned()),
         client_async_worker_tasks: Some(8),
         nested_session_handling: Some(NestedSessionHandling::Never),
+        allow_nested_sessions: Some(false),
+        allow_cyclic_sessions: Some(false),
         dangerously_enable_paste_buffer_read: Some(true),
         session_indicator: Some(false),
         swap_layout_notification: Some(false),

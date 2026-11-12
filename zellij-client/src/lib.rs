@@ -147,6 +147,7 @@ pub enum RemoteClientError {
     SessionTokenExpired,
     Unauthorized,
     ConnectionFailed(String),
+    NestingRefused(String),
     UrlParseError(url::ParseError),
     IoError(std::io::Error),
     Other(Box<dyn std::error::Error + Send + Sync>),
@@ -158,6 +159,7 @@ impl std::fmt::Display for RemoteClientError {
             RemoteClientError::InvalidAuthToken => write!(f, "Invalid authentication token"),
             RemoteClientError::SessionTokenExpired => write!(f, "Session token expired"),
             RemoteClientError::Unauthorized => write!(f, "Unauthorized"),
+            RemoteClientError::NestingRefused(reason) => write!(f, "{}", reason),
             RemoteClientError::ConnectionFailed(msg) => write!(f, "Connection failed: {}", msg),
             RemoteClientError::UrlParseError(e) => write!(f, "Invalid URL: {}", e),
             RemoteClientError::IoError(e) => write!(f, "IO error: {}", e),
@@ -647,6 +649,7 @@ pub async fn run_remote_client_terminal_loop(
     mut connections: remote_attach::WebSocketConnections,
     nested_session_name: Option<String>,
     host_contacted: Arc<std::sync::atomic::AtomicBool>,
+    nesting_options: Options,
 ) -> Result<Option<ConnectToSession>, RemoteClientError> {
     use crate::os_input_output::{AsyncSignals, AsyncStdin};
 
@@ -699,7 +702,19 @@ pub async fn run_remote_client_terminal_loop(
                         for payload_bytes in nested_frames {
                             reannounce_scheduler.note_host_contact(std::time::Instant::now());
                             host_contacted.store(true, std::sync::atomic::Ordering::Relaxed);
-                            match nested_session::decode_payload(&payload_bytes) {
+                            let decoded = nested_session::decode_payload(&payload_bytes);
+                            let refusal = match decoded.as_ref() {
+                                Some(nested_session::NestedSessionMessage::Refused { reason }) => Some(reason.clone()),
+                                Some(nested_session::NestedSessionMessage::AnnounceAck { ancestry, .. } | nested_session::NestedSessionMessage::AncestryUpdate { ancestry, .. }) => nested_session::attachment_refusal(nesting_options.allow_nested_sessions, nesting_options.allow_cyclic_sessions, ancestry, None, &[]).map(str::to_owned),
+                                _ => None,
+                            };
+                            if let Some(reason) = refusal {
+                                let mut stdout = os_input.get_stdout_writer();
+                                let _ = stdout.write_all(&nested_session::encode_frame(&nested_session::NestedSessionMessage::Bye));
+                                let _ = stdout.flush();
+                                return Err(RemoteClientError::NestingRefused(reason));
+                            }
+                            match decoded {
                                 Some(nested_session::NestedSessionMessage::Ping) => {
                                     let mut stdout = os_input.get_stdout_writer();
                                     let _ = stdout.write_all(&nested_session::encode_frame(
@@ -747,6 +762,7 @@ pub async fn run_remote_client_terminal_loop(
                 if let Some(session_name) = &nested_session_name {
                     if reannounce_scheduler.on_tick(std::time::Instant::now()) {
                         let announce = nested_session::NestedSessionMessage::Announce {
+            session_id: None,
                             session_name: session_name.clone(),
                             capabilities: vec![
                                 nested_session::NestedSessionCapability::NestedControl,
@@ -906,9 +922,17 @@ pub fn start_remote_client(
     ca_cert: Option<std::path::PathBuf>,
     insecure: bool,
     async_worker_tasks: Option<usize>,
+    nesting_options: Options,
 ) -> Result<Option<ConnectToSession>, RemoteClientError> {
     info!("Starting Zellij client!");
 
+    if nesting_options.allow_nested_sessions == Some(false)
+        && os_input.env_variable(envs::ZELLIJ_ENV_KEY).is_some()
+    {
+        return Err(RemoteClientError::NestingRefused(
+            "Nested sessions are disabled by allow_nested_sessions.".to_owned(),
+        ));
+    }
     let remote_session_name = remote_session_url
         .trim_end_matches('/')
         .rsplit('/')
@@ -954,6 +978,7 @@ pub fn start_remote_client(
     stdout.write_all(ENABLE_BRACKETED_PASTE.as_bytes()).unwrap();
     stdout.write_all(ENABLE_FOCUS_REPORTING.as_bytes()).unwrap();
     let announce = nested_session::NestedSessionMessage::Announce {
+        session_id: None,
         session_name: remote_session_name.clone(),
         capabilities: vec![
             nested_session::NestedSessionCapability::NestedControl,
@@ -1000,12 +1025,16 @@ pub fn start_remote_client(
         std::process::exit(exit_status);
     };
 
-    runtime.block_on(run_remote_client_terminal_loop(
+    let result = runtime.block_on(run_remote_client_terminal_loop(
         os_input.clone(),
         connections,
         Some(remote_session_name.clone()),
         host_contacted.clone(),
-    ))?;
+        nesting_options,
+    ));
+    if let Err(error) = result {
+        reset_controlling_terminal_state(error.to_string(), 1);
+    }
 
     if says_goodbye_to_host(
         host_contacted.load(std::sync::atomic::Ordering::Relaxed),
@@ -1173,6 +1202,12 @@ pub fn start_client(
         start_server_detached(os_input, cli_args, config, config_options, info);
         return None;
     }
+    if !is_a_reconnect
+        && config_options.allow_nested_sessions == Some(false)
+        && os_input.env_variable(envs::ZELLIJ_ENV_KEY).is_some()
+    {
+        exit_after_startup_error(None, "Nested sessions are disabled by allow_nested_sessions. Use --allow-nested-sessions true to override the client setting.".to_owned());
+    }
     info!("Starting Zellij client!");
 
     let reminders = zellij_utils::desktop_integration::ReminderContext {
@@ -1286,7 +1321,16 @@ pub fn start_client(
     let mut stdout = os_input.get_stdout_writer();
     stdout.write_all(ENABLE_BRACKETED_PASTE.as_bytes()).unwrap();
     stdout.write_all(ENABLE_FOCUS_REPORTING.as_bytes()).unwrap();
+    let nesting_identity = if config_options.disable_session_metadata.unwrap_or(false) {
+        None
+    } else {
+        ipc_pipe
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|id| zellij_utils::sessions::nesting_identity(id).ok())
+    };
     let announce = nested_session::NestedSessionMessage::Announce {
+        session_id: nesting_identity.clone(),
         session_name: own_session_name.clone(),
         capabilities: vec![
             nested_session::NestedSessionCapability::NestedControl,
@@ -1307,6 +1351,7 @@ pub fn start_client(
     let nested_reannounce = crate::nested_reannounce::NestedReannounce::spawn(
         os_input.clone(),
         own_session_name.clone(),
+        nesting_identity,
     );
 
     let (send_client_instructions, receive_client_instructions): ChannelWithContext<
@@ -1583,6 +1628,7 @@ pub fn start_client(
                 nested_reannounce.rename(name.clone());
                 envs::set_session_name(name.clone());
                 let announce = nested_session::NestedSessionMessage::Announce {
+                    session_id: nested_reannounce.session_id().map(str::to_owned),
                     session_name: name,
                     capabilities: vec![
                         nested_session::NestedSessionCapability::NestedControl,

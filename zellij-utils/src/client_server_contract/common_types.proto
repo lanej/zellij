@@ -1380,6 +1380,8 @@ message Options {
   optional bool hidden_bars_notification = 86;
   optional bool mode_hints_when_bars_hidden = 87;
   optional bool hide_scroll_indicator_when_idle = 88;
+  optional bool allow_nested_sessions = 90;
+  optional bool allow_cyclic_sessions = 91;
 }
 
 enum OnForceClose {

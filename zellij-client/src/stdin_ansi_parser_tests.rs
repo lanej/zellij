@@ -1853,6 +1853,7 @@ fn announce_frame_and_payload() -> (Vec<u8>, Vec<u8>) {
         encode_frame, encode_payload, NestedSessionCapability, NestedSessionMessage,
     };
     let message = NestedSessionMessage::Announce {
+        session_id: None,
         session_name: "guest-session".to_owned(),
         capabilities: vec![NestedSessionCapability::NestedControl],
     };

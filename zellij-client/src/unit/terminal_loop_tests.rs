@@ -46,7 +46,7 @@ impl AsyncSignals for MockAsyncSignals {
 }
 
 #[derive(Clone)]
-struct TestClientOsApi {
+pub(crate) struct TestClientOsApi {
     stdout_buffer: Arc<Mutex<Vec<u8>>>,
     stdin_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<Vec<u8>>>>,
     signal_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<SignalEvent>>>,
@@ -54,7 +54,7 @@ struct TestClientOsApi {
 }
 
 impl TestClientOsApi {
-    fn new(
+    pub(crate) fn new(
         stdin_rx: mpsc::UnboundedReceiver<Vec<u8>>,
         signal_rx: mpsc::UnboundedReceiver<SignalEvent>,
     ) -> Self {
@@ -368,6 +368,7 @@ async fn test_stdin_forwarded_to_terminal_websocket() {
             connections,
             None,
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zellij_utils::input::options::Options::default(),
         )
         .await
     });
@@ -444,6 +445,7 @@ async fn test_terminal_output_written_to_stdout() {
             connections,
             None,
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zellij_utils::input::options::Options::default(),
         )
         .await
     });
@@ -521,6 +523,7 @@ async fn test_resize_signal_sends_control_message() {
             connections,
             None,
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zellij_utils::input::options::Options::default(),
         )
         .await
     });
@@ -614,6 +617,7 @@ async fn test_quit_signal_exits_loop() {
             connections,
             None,
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zellij_utils::input::options::Options::default(),
         )
         .await
     });
@@ -674,6 +678,7 @@ async fn test_websocket_close_exits_loop() {
             connections,
             None,
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zellij_utils::input::options::Options::default(),
         )
         .await
     });
@@ -739,6 +744,7 @@ async fn test_control_message_handling() {
             connections,
             None,
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zellij_utils::input::options::Options::default(),
         )
         .await
     });
@@ -852,6 +858,7 @@ async fn test_nested_ping_frame_is_answered_locally_and_stripped_from_forwarded_
             connections,
             None,
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zellij_utils::input::options::Options::default(),
         )
         .await
     });
@@ -911,11 +918,13 @@ async fn test_nested_announce_ack_is_relayed_over_control_websocket() {
             connections,
             None,
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            zellij_utils::input::options::Options::default(),
         )
         .await
     });
 
     let announce_ack = zellij_utils::nested_session::NestedSessionMessage::AnnounceAck {
+        ancestry_ids: vec![],
         ancestry: vec!["outer-host".to_owned()],
         capabilities: vec![zellij_utils::nested_session::NestedSessionCapability::NestedControl],
         descend_keys: vec![],
@@ -955,4 +964,54 @@ async fn test_nested_announce_ack_is_relayed_over_control_websocket() {
         .await
         .expect("Loop didn't exit")
         .unwrap();
+}
+
+#[tokio::test]
+#[serial]
+async fn nested_policy_refusal_sends_goodbye_before_exiting_the_remote_loop() {
+    use zellij_utils::nested_session::{encode_frame, NestedSessionMessage};
+    for host_refusal in [true, false] {
+        let (port, _server, server_handle) = mock_ws_server::MockWsServer::start().await;
+        let connections = connect_mock_ws(port).await;
+        let (stdin_tx, stdin_rx) = mpsc::unbounded_channel();
+        let (_signal_tx, signal_rx) = mpsc::unbounded_channel();
+        let os_input = TestClientOsApi::new(stdin_rx, signal_rx);
+        let stdout = os_input.stdout_buffer.clone();
+        let message = if host_refusal {
+            NestedSessionMessage::Refused {
+                reason: "Host disabled nesting".to_owned(),
+            }
+        } else {
+            NestedSessionMessage::AnnounceAck {
+                ancestry: vec!["host".to_owned()],
+                ancestry_ids: vec!["host-id".to_owned()],
+                capabilities: vec![],
+                descend_keys: vec![],
+            }
+        };
+        stdin_tx.send(encode_frame(&message)).unwrap();
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            run_remote_client_terminal_loop(
+                Box::new(os_input),
+                connections,
+                Some("guest".to_owned()),
+                Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                zellij_utils::input::options::Options {
+                    allow_nested_sessions: Some(false),
+                    ..Default::default()
+                },
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(result.is_err());
+        let goodbye = encode_frame(&NestedSessionMessage::Bye);
+        assert!(stdout
+            .lock()
+            .unwrap()
+            .windows(goodbye.len())
+            .any(|bytes| bytes == goodbye));
+        server_handle.abort();
+    }
 }

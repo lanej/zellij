@@ -11764,6 +11764,7 @@ fn decode_nested_frame(bytes: &[u8]) -> Option<zellij_utils::nested_session::Nes
 
 fn guest_announce_message() -> zellij_utils::nested_session::NestedSessionMessage {
     zellij_utils::nested_session::NestedSessionMessage::Announce {
+        session_id: None,
         session_name: "guest-session".to_owned(),
         capabilities: vec![zellij_utils::nested_session::NestedSessionCapability::NestedControl],
     }
@@ -11802,9 +11803,17 @@ pub fn nested_guest_announce_gets_announce_ack_with_ancestry() {
             _ => None,
         })
         .expect("an announce_ack frame written to the guest pane");
+    let zellij_utils::nested_session::NestedSessionMessage::AnnounceAck { ancestry_ids, .. } =
+        &announce_ack
+    else {
+        panic!("expected acknowledgement")
+    };
+    assert_eq!(ancestry_ids.len(), 1);
+    assert!(uuid::Uuid::parse_str(&ancestry_ids[0]).is_ok());
     assert_eq!(
         announce_ack,
         zellij_utils::nested_session::NestedSessionMessage::AnnounceAck {
+            ancestry_ids: ancestry_ids.clone(),
             ancestry: vec!["zellij-test".to_owned()],
             capabilities: vec![
                 zellij_utils::nested_session::NestedSessionCapability::NestedControl,
@@ -14894,6 +14903,7 @@ mod nested_hint_reporting {
             self.screen.handle_nested_session_message_from_pane(
                 PaneId::Terminal(1),
                 NestedSessionMessage::Announce {
+                    session_id: None,
                     session_name: "inner".to_owned(),
                     capabilities,
                 },
@@ -14911,6 +14921,7 @@ mod nested_hint_reporting {
             self.screen.handle_nested_session_message_from_host(
                 1,
                 NestedSessionMessage::AnnounceAck {
+                    ancestry_ids: vec![],
                     ancestry: vec!["outer".to_owned()],
                     capabilities,
                     descend_keys: vec![],
@@ -15049,6 +15060,7 @@ mod nested_hint_reporting {
         harness.screen.handle_nested_session_message_from_pane(
             PaneId::Terminal(1),
             NestedSessionMessage::Announce {
+                session_id: None,
                 session_name: session_name.to_owned(),
                 capabilities: vec![NestedSessionCapability::NestedControl],
             },
@@ -20277,25 +20289,34 @@ fn nested_cycle_guard_retains_every_containing_client_and_removes_detached_ances
         create_new_screen_with_capture(Size { cols: 80, rows: 24 }, true, true, true, false);
     let (writer, received) = channels::unbounded();
     screen.bus.senders.to_pty_writer = Some(SenderWithContext::new(writer));
+    screen.set_session_nesting_policy(true, false);
+    screen.nesting_identity = Some("current-session-id".to_owned());
     for (client_id, host) in [(1, "first-host"), (2, "second-host")] {
         screen.handle_nested_session_message_from_host(
             client_id,
             NestedSessionMessage::AnnounceAck {
+                ancestry_ids: vec![format!("id-{host}")],
                 ancestry: vec![host.to_owned()],
                 capabilities: vec![],
                 descend_keys: vec![],
             },
         );
     }
-    screen.handle_nested_guest_announce(PaneId::Terminal(9), "first-host".to_owned(), vec![]);
+    screen.handle_nested_guest_announce(
+        PaneId::Terminal(9),
+        "first-host".to_owned(),
+        vec![],
+        Some("id-first-host".to_owned()),
+    );
     let (reply, _) = received
         .try_recv()
         .expect("cycle rejection must reply to the client");
     match reply {
         PtyWriteInstruction::Write(bytes, 9, None) => {
-            assert!(
-                matches!(decode_nested_frame(&bytes), Some(NestedSessionMessage::AnnounceAck { ancestry, .. }) if ancestry.contains(&"first-host".to_owned()) && ancestry.contains(&"second-host".to_owned()))
-            );
+            assert!(matches!(
+                decode_nested_frame(&bytes),
+                Some(NestedSessionMessage::Refused { .. })
+            ));
         },
         other => panic!("unexpected rejection reply: {other:?}"),
     }
@@ -20312,9 +20333,12 @@ fn nested_cycle_guard_detaches_only_the_recursive_viewer_before_mutating_ancestr
     use zellij_utils::nested_session::NestedSessionMessage;
     let (mut screen, _, received) =
         create_new_screen_with_capture(Size { cols: 80, rows: 24 }, true, true, true, false);
+    screen.nesting_identity = Some("current-session-id".to_owned());
+    screen.set_session_nesting_policy(true, false);
     screen.handle_nested_session_message_from_host(
         1,
         NestedSessionMessage::AnnounceAck {
+            ancestry_ids: vec!["safe-host-id".to_owned()],
             ancestry: vec!["safe-host".to_owned()],
             capabilities: vec![],
             descend_keys: vec![],
@@ -20324,6 +20348,7 @@ fn nested_cycle_guard_detaches_only_the_recursive_viewer_before_mutating_ancestr
     screen.handle_nested_session_message_from_host(
         2,
         NestedSessionMessage::AncestryUpdate {
+            ancestry_ids: vec![screen.nesting_identity.clone().unwrap()],
             ancestry: vec!["zellij-test".to_owned()],
         },
     );
@@ -20334,5 +20359,65 @@ fn nested_cycle_guard_detaches_only_the_recursive_viewer_before_mutating_ancestr
     assert_eq!(
         screen.containing_session_names(),
         vec!["safe-host".to_owned()]
+    );
+}
+
+#[test]
+fn nested_policy_host_refuses_before_registering_a_guest() {
+    use zellij_utils::nested_session::NestedSessionMessage;
+    let (mut screen, _, _) =
+        create_new_screen_with_capture(Size { cols: 80, rows: 24 }, true, true, true, false);
+    let (writer, received) = channels::unbounded();
+    screen.bus.senders.to_pty_writer = Some(SenderWithContext::new(writer));
+    screen.set_session_nesting_policy(false, true);
+    screen.handle_nested_guest_announce(
+        PaneId::Terminal(0),
+        "guest".to_owned(),
+        vec![],
+        Some("guest-id".to_owned()),
+    );
+    let (reply, _) = received.try_recv().expect("host must explain its refusal");
+    match reply {
+        PtyWriteInstruction::Write(bytes, 0, None) => assert!(
+            matches!(decode_nested_frame(&bytes), Some(NestedSessionMessage::Refused { reason }) if reason.contains("allow_nested_sessions"))
+        ),
+        other => panic!("unexpected reply: {other:?}"),
+    }
+    assert!(!screen.nested_guest_tracker.is_tracked(PaneId::Terminal(0)));
+    assert!(screen.guest_capabilities.is_empty());
+}
+
+#[test]
+fn nested_policy_retains_unknown_identity_through_a_modern_host() {
+    use zellij_utils::nested_session::NestedSessionMessage;
+    let (mut screen, _, _) =
+        create_new_screen_with_capture(Size { cols: 80, rows: 24 }, true, true, true, false);
+    screen.nesting_identity = Some("modern-host-id".to_owned());
+    screen.handle_nested_session_message_from_host(
+        1,
+        NestedSessionMessage::AnnounceAck {
+            ancestry: vec!["old-host".to_owned()],
+            ancestry_ids: vec![],
+            capabilities: vec![],
+            descend_keys: vec![],
+        },
+    );
+    assert_eq!(
+        screen.containing_session_ids(),
+        vec![String::new(), "modern-host-id".to_owned()]
+    );
+    assert!(zellij_utils::nested_session::attachment_refusal(
+        Some(true),
+        Some(false),
+        &screen.containing_session_names(),
+        Some("guest-id"),
+        &screen.containing_session_ids()
+    )
+    .unwrap()
+    .contains("Cannot verify"));
+    screen.remove_client(1).unwrap();
+    assert_eq!(
+        screen.containing_session_ids(),
+        vec!["modern-host-id".to_owned()]
     );
 }

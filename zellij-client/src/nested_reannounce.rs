@@ -11,6 +11,7 @@ use zellij_utils::nested_session::{
 #[derive(Clone)]
 pub struct NestedReannounce {
     session_name: Arc<Mutex<String>>,
+    session_id: Option<String>,
     scheduler: Arc<Mutex<ReannounceScheduler>>,
     wakeup: Arc<Condvar>,
     stop: Arc<AtomicBool>,
@@ -18,8 +19,13 @@ pub struct NestedReannounce {
 }
 
 impl NestedReannounce {
-    pub fn spawn(os_input: Box<dyn ClientOsApi>, session_name: String) -> Self {
+    pub fn spawn(
+        os_input: Box<dyn ClientOsApi>,
+        session_name: String,
+        session_id: Option<String>,
+    ) -> Self {
         let handle = NestedReannounce {
+            session_id,
             session_name: Arc::new(Mutex::new(session_name)),
             scheduler: Arc::new(Mutex::new(ReannounceScheduler::new(Instant::now()))),
             wakeup: Arc::new(Condvar::new()),
@@ -27,6 +33,7 @@ impl NestedReannounce {
             thread: Arc::new(Mutex::new(None)),
         };
         let session_name = handle.session_name.clone();
+        let session_id = handle.session_id.clone();
         let scheduler = handle.scheduler.clone();
         let wakeup = handle.wakeup.clone();
         let stop = handle.stop.clone();
@@ -52,6 +59,7 @@ impl NestedReannounce {
                         continue;
                     }
                     let announce = NestedSessionMessage::Announce {
+                        session_id: session_id.clone(),
                         session_name: session_name.lock().unwrap().clone(),
                         capabilities: vec![
                             NestedSessionCapability::NestedControl,
@@ -71,8 +79,8 @@ impl NestedReannounce {
         handle
     }
 
-    pub fn session_name(&self) -> String {
-        self.session_name.lock().unwrap().clone()
+    pub fn session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
     }
 
     pub fn rename(&self, name: String) {

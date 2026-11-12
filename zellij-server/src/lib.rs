@@ -1379,6 +1379,8 @@ impl SessionMetaData {
                         .options
                         .host_notification_protocol
                         .unwrap_or_default(),
+                    allow_nested_sessions: new_config.options.allow_nested_sessions.unwrap_or(true),
+                    allow_cyclic_sessions: new_config.options.allow_cyclic_sessions.unwrap_or(true),
                     nested_session_handling: new_config
                         .options
                         .nested_session_handling
@@ -1591,6 +1593,7 @@ macro_rules! send_to_client {
 pub(crate) struct SessionState {
     clients: HashMap<ClientId, Option<(Size, bool)>>, // bool -> is_web_client
     client_session_ancestries: HashMap<ClientId, Vec<String>>,
+    client_session_ancestry_ids: HashMap<ClientId, Vec<String>>,
     pipes: HashMap<String, ClientId>,     // String => pipe_id
     watchers: HashMap<ClientId, bool>, // watcher clients (read-only observers) bool -> is_web_client
     last_active_client: Option<ClientId>, // last client that sent a Key message
@@ -1623,6 +1626,7 @@ impl SessionState {
         SessionState {
             clients: HashMap::new(),
             client_session_ancestries: HashMap::new(),
+            client_session_ancestry_ids: HashMap::new(),
             pipes: HashMap::new(),
             watchers: HashMap::new(),
             last_active_client: None,
@@ -1667,6 +1671,7 @@ impl SessionState {
     pub fn remove_client(&mut self, client_id: ClientId) -> Vec<u32> {
         self.clients.remove(&client_id);
         self.client_session_ancestries.remove(&client_id);
+        self.client_session_ancestry_ids.remove(&client_id);
         self.pipes.retain(|_p_id, c_id| c_id != &client_id);
         self.clear_last_active_client(client_id);
         let stuck: Vec<u32> = self
@@ -1679,19 +1684,37 @@ impl SessionState {
         }
         stuck
     }
-    pub fn note_client_ancestry(&mut self, client_id: ClientId, ancestry: &[String]) {
+    pub fn note_client_ancestry(
+        &mut self,
+        client_id: ClientId,
+        ancestry: &[String],
+        ancestry_ids: &[String],
+    ) {
         if self.clients.contains_key(&client_id) {
+            self.client_session_ancestry_ids
+                .insert(client_id, ancestry_ids.to_vec());
             self.client_session_ancestries
                 .insert(client_id, ancestry.to_vec());
         }
     }
-    fn session_switch_error(&self, client_id: ClientId, target: Option<&str>) -> Option<String> {
-        let target = target?;
-        self.client_session_ancestries
-            .get(&client_id)?
-            .iter()
-            .any(|ancestor| ancestor == target)
-            .then(|| format!("Cannot switch to containing session \"{target}\": this would create a nested session cycle."))
+    fn session_switch_error(
+        &self,
+        client_id: ClientId,
+        target_id: Option<&str>,
+        allow_nested: bool,
+        allow_cycles: bool,
+    ) -> Option<String> {
+        zellij_utils::nested_session::attachment_refusal(
+            Some(allow_nested),
+            Some(allow_cycles),
+            self.client_session_ancestries.get(&client_id)?,
+            target_id,
+            self.client_session_ancestry_ids
+                .get(&client_id)
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
+        )
+        .map(str::to_owned)
     }
     pub fn set_client_size(&mut self, client_id: ClientId, size: Size) {
         self.clients
@@ -1935,30 +1958,42 @@ mod session_state_tests {
     fn session_switch_rejects_only_the_callers_containing_sessions() {
         let mut state = with_client(1);
         state.clients.insert(2, None);
-        state.note_client_ancestry(1, &["outer".into(), "middle".into()]);
-        state.note_client_ancestry(2, &["other-host".into()]);
-        assert!(state.session_switch_error(1, Some("outer")).is_some());
-        assert!(state.session_switch_error(1, Some("middle")).is_some());
-        assert!(state.session_switch_error(1, Some("unrelated")).is_none());
-        assert!(state.session_switch_error(2, Some("outer")).is_none());
-        assert!(state.session_switch_error(1, None).is_none());
+        state.note_client_ancestry(
+            1,
+            &["outer".into(), "middle".into()],
+            &["outer".into(), "middle".into()],
+        );
+        state.note_client_ancestry(2, &["other-host".into()], &["other-host".into()]);
+        assert!(state
+            .session_switch_error(1, Some("outer"), true, false)
+            .is_some());
+        assert!(state
+            .session_switch_error(1, Some("middle"), true, false)
+            .is_some());
+        assert!(state
+            .session_switch_error(1, Some("unrelated"), true, false)
+            .is_none());
+        assert!(state
+            .session_switch_error(2, Some("outer"), true, false)
+            .is_none());
+        assert!(state.session_switch_error(1, None, true, false).is_some());
     }
 
     #[test]
     fn session_switch_uses_updated_ancestry_and_forgets_disconnected_clients() {
         let mut state = with_client(1);
-        state.note_client_ancestry(1, &["before-rename".into()]);
-        state.note_client_ancestry(1, &["after-rename".into()]);
+        state.note_client_ancestry(1, &["before-rename".into()], &["before-rename".into()]);
+        state.note_client_ancestry(1, &["after-rename".into()], &["after-rename".into()]);
         assert!(state
-            .session_switch_error(1, Some("before-rename"))
+            .session_switch_error(1, Some("before-rename"), true, false)
             .is_none());
         assert!(state
-            .session_switch_error(1, Some("after-rename"))
+            .session_switch_error(1, Some("after-rename"), true, false)
             .is_some());
         state.remove_client(1);
         state.clients.insert(1, None);
         assert!(state
-            .session_switch_error(1, Some("after-rename"))
+            .session_switch_error(1, Some("after-rename"), true, false)
             .is_none());
     }
 
@@ -6211,10 +6246,20 @@ fn reject_nested_session_switch(
     client_id: ClientId,
     target: &ConnectToSession,
 ) -> bool {
-    let error = session_state
-        .read()
-        .unwrap()
-        .session_switch_error(client_id, target.name.as_deref());
+    let config = client_configuration(session_data, client_id);
+    let target_session = target
+        .name
+        .as_deref()
+        .and_then(zellij_utils::sessions::resolve_session_id);
+    let target_id = target_session
+        .as_deref()
+        .and_then(|id| zellij_utils::sessions::read_nesting_identity(id).ok());
+    let error = session_state.read().unwrap().session_switch_error(
+        client_id,
+        target_id.as_deref(),
+        config.options.allow_nested_sessions.unwrap_or(true),
+        config.options.allow_cyclic_sessions.unwrap_or(true) || target_session.is_none(),
+    );
     let Some(error) = error else { return false };
     log::warn!("{error}");
     send_to_plugin_thread(

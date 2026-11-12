@@ -172,6 +172,8 @@ fn option_values(options: &Options, values: &mut BTreeMap<SettingKey, Option<Str
         post_command_discovery_hook,
         client_async_worker_tasks,
         nested_session_handling,
+        allow_nested_sessions,
+        allow_cyclic_sessions,
         dangerously_enable_paste_buffer_read,
         session_indicator,
         swap_layout_notification,
@@ -342,6 +344,14 @@ fn option_values(options: &Options, values: &mut BTreeMap<SettingKey, Option<Str
         (
             SettingKey::ClientAsyncWorkerTasks,
             display_text(client_async_worker_tasks),
+        ),
+        (
+            SettingKey::AllowNestedSessions,
+            display_text(allow_nested_sessions),
+        ),
+        (
+            SettingKey::AllowCyclicSessions,
+            display_text(allow_cyclic_sessions),
         ),
         (
             SettingKey::NestedSessionHandling,
@@ -1000,6 +1010,12 @@ pub fn copy_setting(target: &mut Config, source: &Config, key: SettingKey) {
         },
         SettingKey::ClientAsyncWorkerTasks => {
             options.client_async_worker_tasks = from.client_async_worker_tasks
+        },
+        SettingKey::AllowNestedSessions => {
+            options.allow_nested_sessions = from.allow_nested_sessions
+        },
+        SettingKey::AllowCyclicSessions => {
+            options.allow_cyclic_sessions = from.allow_cyclic_sessions
         },
         SettingKey::NestedSessionHandling => {
             options.nested_session_handling = from.nested_session_handling

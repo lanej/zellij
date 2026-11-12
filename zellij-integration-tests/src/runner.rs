@@ -1101,7 +1101,11 @@ impl TestSession {
             "the client switched to another session than expected"
         );
         let target = target.session_context;
-        let (fake_client_os_api, fake_client_handle) = FakeClientOsApi::new(self.size, None);
+        let (fake_client_os_api, fake_client_handle) = FakeClientOsApi::new_with_env(
+            self.size,
+            None,
+            std::collections::HashMap::from([("ZELLIJ".to_owned(), "0".to_owned())]),
+        );
         let client_thread = spawn_client_thread_with_reconnect(
             fake_client_os_api,
             target.cli_args.clone(),

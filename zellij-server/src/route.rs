@@ -2956,10 +2956,17 @@ fn route_nested_host_message(
     if !state.clients.contains_key(&client_id) {
         return Ok(NestedHostRouting::Ignored);
     }
-    if let NestedSessionMessage::AnnounceAck { ancestry, .. }
-    | NestedSessionMessage::AncestryUpdate { ancestry } = &message
+    if let NestedSessionMessage::AnnounceAck {
+        ancestry,
+        ancestry_ids,
+        ..
+    }
+    | NestedSessionMessage::AncestryUpdate {
+        ancestry,
+        ancestry_ids,
+    } = &message
     {
-        state.note_client_ancestry(client_id, ancestry);
+        state.note_client_ancestry(client_id, ancestry, ancestry_ids);
     }
     let Some(senders) = senders else {
         return Ok(NestedHostRouting::Retry);
@@ -4398,6 +4405,7 @@ mod tests {
             ..Default::default()
         };
         let ack = NestedSessionMessage::AnnounceAck {
+            ancestry_ids: vec![],
             ancestry: vec!["host".to_owned()],
             capabilities: vec![],
             descend_keys: vec![],
@@ -4420,6 +4428,7 @@ mod tests {
         for message in [
             ack.clone(),
             NestedSessionMessage::AncestryUpdate {
+                ancestry_ids: vec![],
                 ancestry: vec!["stale".to_owned()],
             },
         ] {
@@ -4450,6 +4459,7 @@ mod tests {
         let state = RwLock::new(SessionState::new());
         let client_id = state.write().unwrap().new_client();
         let message = NestedSessionMessage::AnnounceAck {
+            ancestry_ids: vec![],
             ancestry: vec!["host".to_owned()],
             capabilities: vec![],
             descend_keys: vec![],

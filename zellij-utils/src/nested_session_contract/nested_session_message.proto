@@ -18,6 +18,7 @@ message NestedSessionMessage {
     GuestModeUpdate guest_mode_update = 15;
     RequestGuestKeybinds request_guest_keybinds = 16;
     GuestKeybindsReply guest_keybinds_reply = 18;
+    Refused refused = 19;
   }
   reserved 17;
 }
@@ -38,6 +39,7 @@ enum NestedDirection {
 }
 
 message Announce {
+  optional string session_id = 3;
   string session_name = 1;
   repeated NestedCapability capabilities = 2;
 }
@@ -53,10 +55,15 @@ message ToggleHostFullscreen {
 message Pong {
 }
 
+message Refused {
+  string reason = 1;
+}
+
 message Bye {
 }
 
 message AnnounceAck {
+  repeated string ancestry_ids = 4;
   repeated string ancestry = 1;
   repeated NestedCapability capabilities = 2;
   repeated string descend_keys = 3;
@@ -79,6 +86,7 @@ message FullscreenState {
 }
 
 message AncestryUpdate {
+  repeated string ancestry_ids = 2;
   repeated string ancestry = 1;
 }
 

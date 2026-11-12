@@ -819,6 +819,7 @@ pub(crate) fn start_client(opts: CliArgs) {
                     args.ca_cert.clone(),
                     args.insecure,
                     config_options.client_async_worker_tasks,
+                    config_options.clone(),
                 ) {
                     eprintln!("{}", e);
                     std::process::exit(2);
