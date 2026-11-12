@@ -27,9 +27,9 @@ impl TitleOwnership {
             && self.auto_titles.get(&tab.tab_id.to_string()) != Some(&tab.name);
         if fixed {
             let lock = if mode.capabilities.arrow_fonts {
-                " "
-            } else {
                 "L "
+            } else {
+                " "
             };
             format!("{lock}{}", tab.name)
         } else {
@@ -67,7 +67,7 @@ mod tests {
             session_name: Some("main".into()),
             ..Default::default()
         };
-        mode.capabilities.arrow_fonts = true;
+        mode.capabilities.arrow_fonts = false;
         let mut tab = TabInfo {
             tab_id: 7,
             name: "project".into(),
@@ -78,7 +78,7 @@ mod tests {
         tab.name = "review".into();
         assert_eq!(view.label(&tab, &mode), " review");
         assert_eq!(tab.name, "review");
-        mode.capabilities.arrow_fonts = false;
+        mode.capabilities.arrow_fonts = true;
         assert_eq!(view.label(&tab, &mode), "L review");
         mode.mode = InputMode::RenameTab;
         assert_eq!(view.label(&tab, &mode), "review");

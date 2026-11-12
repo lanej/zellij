@@ -913,7 +913,7 @@ mod tests {
     fn ownership_refresh_can_unlock_a_title_without_a_tab_name_change() {
         let mut client = client_with_tabs(&[7], 0);
         client.mode_info.session_name = Some("main".into());
-        client.mode_info.capabilities.arrow_fonts = true;
+        client.mode_info.capabilities.arrow_fonts = false;
         let mut bar = bar_with_line(client);
         bar.slots.insert(0, SlotConfig::default());
         let context = BTreeMap::from([("tab-title-client".into(), "1".into())]);
