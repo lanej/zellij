@@ -115,7 +115,7 @@ fn go_to_first_tab(client: &TestClient) {
 }
 
 #[test]
-fn dotfiles_cli_query_waits_for_its_reply_after_another_client_closes_a_pane() {
+fn cli_query_ignores_completion_from_another_panes_exit() {
     use zellij_client::os_input_output::ClientOsApi;
     use zellij_integration_tests::fake_client_os_api::FakeClientOsApi;
     use zellij_utils::input::actions::Action;
@@ -124,10 +124,11 @@ fn dotfiles_cli_query_waits_for_its_reply_after_another_client_closes_a_pane() {
     let mut zellij = start_zellij();
     let terminal = claim_first_terminal_and_wait_for_prompt(&zellij);
     mark_pane(zellij.main_client(), &terminal, "remaining-pane");
-    let _second = split_right_marked(&zellij, zellij.main_client(), "closing-pane");
+    let second = split_right_marked(&zellij, zellij.main_client(), "closing-pane");
 
     let (cli, _) = FakeClientOsApi::new(TERMINAL_SIZE, None);
-    cli.connect_to_server(&zellij.socket_path());
+    cli.connect_to_server(&zellij.socket_path())
+        .expect("CLI could not connect to the test session");
     let reader = cli.clone();
     let (messages_tx, messages_rx) = crossbeam::channel::unbounded();
     let receiver_thread = std::thread::spawn(move || {
@@ -151,8 +152,8 @@ fn dotfiles_cli_query_waits_for_its_reply_after_another_client_closes_a_pane() {
         is_cli_client: true,
     };
 
-    // Complete a real round trip so this command socket is registered before
-    // another client closes a pane. Consume only this query's own completion.
+    // rationale: Register the command socket before another pane exits, and
+    // consume this query's completion before testing the unrelated broadcast.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         cli.send_to_server(query.clone());
         assert!(matches!(
@@ -164,10 +165,22 @@ fn dotfiles_cli_query_waits_for_its_reply_after_another_client_closes_a_pane() {
             Ok(ServerToClientMsg::UnblockInputThread)
         ));
 
-        zellij.send_stdin(&keys::ctrl('p'));
-        zellij.send_stdin(&keys::key('x'));
-        zellij.wait_until("the other client's pane closed", |grid| {
+        let completion_count = || {
+            zellij
+                .main_client()
+                .received_server_messages()
+                .iter()
+                .filter(|message| message.as_str() == "UnblockInputThread")
+                .count()
+        };
+        let completions_before_exit = completion_count();
+        second.exit(Some(0));
+        zellij.wait_until("the other pane's process exited", |grid| {
             grid.contains("remaining-pane") && !grid.contains("closing-pane")
+        });
+
+        zellij_integration_tests::wait_for("interactive completion after pane exit", || {
+            completion_count() > completions_before_exit
         });
 
         // The ordinary CLI exits on UnblockInputThread. Receiving one here
@@ -178,7 +191,19 @@ fn dotfiles_cli_query_waits_for_its_reply_after_another_client_closes_a_pane() {
             .expect("CLI query did not receive a reply");
         assert!(
             matches!(response, ServerToClientMsg::Log { .. }),
-            "unrelated pane closure completed the CLI query: {response:?}"
+            "unrelated pane exit completed the CLI query: {response:?}"
+        );
+        assert!(matches!(
+            messages_rx.recv_timeout(zellij_integration_tests::default_timeout()),
+            Ok(ServerToClientMsg::UnblockInputThread)
+        ));
+
+        let stdin = terminal.tap_stdin();
+        zellij.send_stdin(&keys::key('a'));
+        assert_eq!(
+            stdin.recv_timeout(zellij_integration_tests::default_timeout()),
+            Ok(b"a".to_vec()),
+            "interactive input must remain usable after the pane exit"
         );
     }));
     cli.send_to_server(ClientToServerMsg::ClientExited);

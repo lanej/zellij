@@ -64,7 +64,7 @@ jobs:
           rustup run 1.95.0 cargo test --locked --release \
             -p zellij-integration-tests --test clients --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
-            --target "$host" dotfiles_cli_query
+            --target "$host" cli_query_ignores_completion_from_another_panes_exit
           rustup run 1.95.0 cargo test --locked --release \
             -p zellij-server --lib --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
