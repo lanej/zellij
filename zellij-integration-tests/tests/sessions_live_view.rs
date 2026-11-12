@@ -176,7 +176,7 @@ fn select_session(zellij: &TestSession, name: &str) {
 }
 
 fn open_the_sessions(zellij: &TestSession, names: &[&str]) {
-    zellij.send_stdin(&keys::F9);
+    zellij.send_stdin(&keys::INBOX_KEY);
     zellij.wait_until("the browser opens on the sessions", |grid_snapshot| {
         grid_snapshot.contains(BROWSER_TABS) && grid_snapshot.contains(SESSIONS_HELP)
     });
@@ -287,7 +287,7 @@ fn selecting_a_tab_row_and_a_pane_row_switches_the_view_to_that_pane() {
 fn an_exited_session_shows_its_saved_preview() {
     let (mut zellij, _) = main_session();
     leave_exited_sessions(&["gone-one"]);
-    zellij.send_stdin(&keys::F9);
+    zellij.send_stdin(&keys::INBOX_KEY);
     zellij.wait_until("the exited session is listed as recent", |grid_snapshot| {
         grid_snapshot.contains("Recent") && grid_snapshot.contains("gone-one")
     });
@@ -372,7 +372,7 @@ fn clicking_a_session_and_clicking_it_again_attaches_instead_of_typing() {
 }
 
 #[test]
-fn a_click_on_the_view_types_into_the_pane_and_f9_stops_typing() {
+fn a_click_on_the_view_types_into_the_pane_and_the_inbox_key_stops_typing() {
     let (mut zellij, _) = main_session();
     let (other, terminal) = source_session("$ type in here");
     let name = other.session_name();
@@ -389,7 +389,7 @@ fn a_click_on_the_view_types_into_the_pane_and_f9_stops_typing() {
         stdin.ends_with(b"hello")
     });
     press_release_key(&zellij);
-    zellij.wait_until("F9 stops typing", |grid_snapshot| {
+    zellij.wait_until("the inbox key stops typing", |grid_snapshot| {
         !grid_snapshot.contains(TYPING_INTO) && grid_snapshot.contains(CLICK_TO_TYPE)
     });
     zellij.send_stdin(b"x");
@@ -398,7 +398,7 @@ fn a_click_on_the_view_types_into_the_pane_and_f9_stops_typing() {
     });
     assert!(
         terminal.stdin_bytes().ends_with(b"hello"),
-        "F9 reached the pane: {:?}",
+        "the inbox key reached the pane: {:?}",
         String::from_utf8_lossy(&terminal.stdin_bytes())
     );
     zellij.quit();
@@ -524,6 +524,12 @@ fn a_nested_session_does_not_show_or_resize_the_pane_of_its_parent_that_runs_it(
     let guest_terminal = nested.guest.expect_pty_spawn();
     guest_terminal.output(PROMPT);
     nested.wait_for_host_to_acknowledge_guest();
+    nested.guest.wait_for_app_load();
+    nested
+        .guest
+        .wait_until("the guest is ready for keys", |grid_snapshot| {
+            grid_snapshot.contains("Descend:") && grid_snapshot.contains(" running ")
+        });
     let host_name = nested.host.session_name().to_owned();
     let host_pane_sizes = nested.host_pane.size_history();
     open_the_sessions(&nested.guest, &[&host_name]);

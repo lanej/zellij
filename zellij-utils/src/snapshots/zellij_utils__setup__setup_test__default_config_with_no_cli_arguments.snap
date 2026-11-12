@@ -1,5 +1,6 @@
 ---
 source: zellij-utils/src/setup.rs
+assertion_line: 895
 expression: "format!(\"{:#?}\", config)"
 ---
 Config {
@@ -44,14 +45,6 @@ Config {
                 MoveFocusOrTab {
                     direction: Right,
                 },
-            ],
-            KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
             ],
             KeyWithModifier {
                 bare_key: Char(
@@ -434,14 +427,6 @@ Config {
                 MoveFocusOrTab {
                     direction: Right,
                 },
-            ],
-            KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
             ],
             KeyWithModifier {
                 bare_key: Char(
@@ -953,14 +938,6 @@ Config {
                 },
             ],
             KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
-            ],
-            KeyWithModifier {
                 bare_key: Char(
                     '+',
                 ),
@@ -1444,6 +1421,19 @@ Config {
             ],
             KeyWithModifier {
                 bare_key: Char(
+                    's',
+                ),
+                key_modifiers: {
+                    Shift,
+                },
+            }: [
+                ToggleStackListOrientation,
+                SwitchToMode {
+                    input_mode: Normal,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
                     't',
                 ),
                 key_modifiers: {
@@ -1605,14 +1595,6 @@ Config {
                 MoveFocusOrTab {
                     direction: Right,
                 },
-            ],
-            KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
             ],
             KeyWithModifier {
                 bare_key: Char(
@@ -2266,14 +2248,6 @@ Config {
                 },
             ],
             KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
-            ],
-            KeyWithModifier {
                 bare_key: Char(
                     '+',
                 ),
@@ -2756,14 +2730,6 @@ Config {
                 },
             ],
             KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
-            ],
-            KeyWithModifier {
                 bare_key: Char(
                     '+',
                 ),
@@ -3150,14 +3116,6 @@ Config {
                 MoveFocusOrTab {
                     direction: Right,
                 },
-            ],
-            KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
             ],
             KeyWithModifier {
                 bare_key: Char(
@@ -3643,14 +3601,6 @@ Config {
                 },
             ],
             KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
-            ],
-            KeyWithModifier {
                 bare_key: Char(
                     '+',
                 ),
@@ -4002,14 +3952,6 @@ Config {
                 MoveFocusOrTab {
                     direction: Right,
                 },
-            ],
-            KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
             ],
             KeyWithModifier {
                 bare_key: Char(
@@ -4383,14 +4325,6 @@ Config {
                 },
             ],
             KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
-            ],
-            KeyWithModifier {
                 bare_key: Char(
                     '+',
                 ),
@@ -4608,6 +4542,17 @@ Config {
             }: [
                 MoveFocusOrTab {
                     direction: Left,
+                },
+            ],
+            KeyWithModifier {
+                bare_key: Char(
+                    'i',
+                ),
+                key_modifiers: {},
+            }: [
+                ToggleSessionCard,
+                SwitchToMode {
+                    input_mode: Normal,
                 },
             ],
             KeyWithModifier {
@@ -5044,14 +4989,6 @@ Config {
                 },
             ],
             KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
-            ],
-            KeyWithModifier {
                 bare_key: Char(
                     '+',
                 ),
@@ -5466,14 +5403,6 @@ Config {
                 },
             ],
             KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
-            ],
-            KeyWithModifier {
                 bare_key: Char(
                     '+',
                 ),
@@ -5856,14 +5785,6 @@ Config {
                 MoveFocusOrTab {
                     direction: Right,
                 },
-            ],
-            KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
             ],
             KeyWithModifier {
                 bare_key: Char(
@@ -6408,14 +6329,6 @@ Config {
                 },
             ],
             KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
-            ],
-            KeyWithModifier {
                 bare_key: Char(
                     '+',
                 ),
@@ -6767,14 +6680,6 @@ Config {
                 MoveFocusOrTab {
                     direction: Right,
                 },
-            ],
-            KeyWithModifier {
-                bare_key: F(
-                    9,
-                ),
-                key_modifiers: {},
-            }: [
-                ToggleSessionCard,
             ],
             KeyWithModifier {
                 bare_key: Char(
@@ -7158,6 +7063,7 @@ Config {
         web_sharing: None,
         stacked_resize: None,
         stacked_pane_list: None,
+        stacked_pane_list_orientation: None,
         show_startup_tips: None,
         show_release_notes: None,
         advanced_mouse_actions: None,
@@ -7471,6 +7377,17 @@ Config {
                 ],
                 toggled_label: Some(
                     "Make tiled",
+                ),
+            },
+            Item {
+                label: "Show titles in a row",
+                actions: [
+                    ClickedPane(
+                        ToggleStackListOrientation,
+                    ),
+                ],
+                toggled_label: Some(
+                    "Show titles in a column",
                 ),
             },
             Separator,
@@ -12707,6 +12624,9 @@ Config {
     },
     terminal: TerminalConfig {
         font: None,
+        font_bold: None,
+        font_italic: None,
+        font_bold_italic: None,
         font_size: None,
         system_fonts: None,
         ligatures: None,
@@ -12769,10 +12689,12 @@ Config {
         tab_markers: None,
         idle_rule: None,
         done_threshold_secs: None,
+        track_commands: None,
         idle_activity_secs: None,
         idle_silence_secs: None,
         startup_card: None,
         tray_icon: None,
+        enabled: None,
         desktop_notifications: StatusMap {
             needs_you: None,
             failed: None,

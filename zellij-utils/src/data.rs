@@ -1616,10 +1616,11 @@ pub enum ClickedPaneAction {
     ToggleWatch,
     HideBar,
     PasteFromClipboard,
+    ToggleStackListOrientation,
 }
 
 impl ClickedPaneAction {
-    pub const ALL: [ClickedPaneAction; 11] = [
+    pub const ALL: [ClickedPaneAction; 12] = [
         ClickedPaneAction::CloseFocus,
         ClickedPaneAction::ToggleFocusFullscreen,
         ClickedPaneAction::ToggleEmbedOrFloating,
@@ -1631,6 +1632,7 @@ impl ClickedPaneAction {
         ClickedPaneAction::ToggleWatch,
         ClickedPaneAction::HideBar,
         ClickedPaneAction::PasteFromClipboard,
+        ClickedPaneAction::ToggleStackListOrientation,
     ];
     pub fn kdl_name(&self) -> &'static str {
         match self {
@@ -1645,6 +1647,7 @@ impl ClickedPaneAction {
             ClickedPaneAction::ToggleWatch => "WatchPaneByPaneId",
             ClickedPaneAction::HideBar => "HideBarByPaneId",
             ClickedPaneAction::PasteFromClipboard => "PasteFromClipboardByPaneId",
+            ClickedPaneAction::ToggleStackListOrientation => "ToggleStackListOrientationByPaneId",
         }
     }
     pub fn from_kdl_name(name: &str) -> Option<Self> {
@@ -1669,6 +1672,9 @@ impl ClickedPaneAction {
             ClickedPaneAction::ToggleWatch => Action::WatchPaneByPaneId { pane_id },
             ClickedPaneAction::HideBar => Action::HideBarByPaneId { pane_id },
             ClickedPaneAction::PasteFromClipboard => Action::PasteFromClipboardByPaneId { pane_id },
+            ClickedPaneAction::ToggleStackListOrientation => {
+                Action::ToggleStackListOrientationByPaneId { pane_id }
+            },
         }
     }
 }
@@ -2445,6 +2451,8 @@ pub struct Styling {
     pub text_selected: StyleDeclaration,
     pub ribbon_unselected: StyleDeclaration,
     pub ribbon_selected: StyleDeclaration,
+    #[serde(default)]
+    pub ribbon_hover: Option<StyleDeclaration>,
     pub table_title: StyleDeclaration,
     pub table_cell_unselected: StyleDeclaration,
     pub table_cell_selected: StyleDeclaration,
@@ -2503,7 +2511,7 @@ pub const DEFAULT_STYLES: Styling = Styling {
         base: PaletteColor::Rgb(default_colors::BACKGROUND),
         background: PaletteColor::Rgb(default_colors::RIBBON),
         emphasis_0: PaletteColor::Rgb(default_colors::WINE),
-        emphasis_1: PaletteColor::Rgb(default_colors::RIBBON_HOVER),
+        emphasis_1: PaletteColor::Rgb(default_colors::PLUM),
         emphasis_2: PaletteColor::Rgb(default_colors::NAVY),
         emphasis_3: PaletteColor::Rgb(default_colors::BELL),
     },
@@ -2515,6 +2523,14 @@ pub const DEFAULT_STYLES: Styling = Styling {
         emphasis_2: PaletteColor::Rgb(default_colors::BACKGROUND),
         emphasis_3: PaletteColor::Rgb(default_colors::BELL),
     },
+    ribbon_hover: Some(StyleDeclaration {
+        base: PaletteColor::Rgb(default_colors::BACKGROUND),
+        background: PaletteColor::Rgb(default_colors::RIBBON_HOVER),
+        emphasis_0: PaletteColor::Rgb(default_colors::WINE),
+        emphasis_1: PaletteColor::Rgb(default_colors::PLUM),
+        emphasis_2: PaletteColor::Rgb(default_colors::NAVY),
+        emphasis_3: PaletteColor::Rgb(default_colors::BELL),
+    }),
     exit_code_success: StyleDeclaration {
         base: PaletteColor::Rgb(default_colors::GREEN),
         background: PaletteColor::Rgb(default_colors::BACKGROUND),
@@ -2615,6 +2631,15 @@ impl Default for Styling {
     }
 }
 
+impl Styling {
+    pub fn ribbon_hover_style(&self) -> StyleDeclaration {
+        self.ribbon_hover.unwrap_or(StyleDeclaration {
+            background: self.ribbon_unselected.emphasis_1,
+            ..self.ribbon_unselected
+        })
+    }
+}
+
 impl From<Styling> for Palette {
     fn from(styling: Styling) -> Self {
         Palette {
@@ -2680,6 +2705,7 @@ impl From<Palette> for Styling {
                 emphasis_3: palette.blue,
                 background: palette.green,
             },
+            ribbon_hover: None,
             exit_code_success: StyleDeclaration {
                 base: palette.green,
                 emphasis_0: palette.cyan,
@@ -4158,7 +4184,6 @@ impl LiveView {
     }
 }
 
-pub const DEFAULT_LIVE_VIEW_RELEASE_KEY: &str = "F9";
 pub const LIVE_VIEW_DOUBLE_PRESS_MS: u64 = 400;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5183,7 +5208,7 @@ pub enum PluginCommand {
     PageScrollUpInPaneId(PaneId),
     PageScrollDownInPaneId(PaneId),
     TogglePaneIdFullscreen(PaneId),
-    TogglePaneEmbedOrEjectForPaneId(PaneId),
+    TogglePaneEmbedOrEjectForPaneId(PaneId, bool),
     CloseTabWithIndex(usize), // usize - tab_index
     BreakPanesToNewTab(Vec<PaneId>, Option<String>, bool), // bool -
     // should_change_focus_to_new_tab,
@@ -5558,6 +5583,7 @@ setting_keys! {
     WebSharing => (TopLevel, "web_sharing", true, Text),
     StackedResize => (TopLevel, "stacked_resize", false, Flag),
     StackedPaneList => (TopLevel, "stacked_pane_list", false, Flag),
+    StackedPaneListOrientation => (TopLevel, "stacked_pane_list_orientation", false, Text),
     ShowStartupTips => (TopLevel, "show_startup_tips", true, Flag),
     ShowReleaseNotes => (TopLevel, "show_release_notes", true, Flag),
     AdvancedMouseActions => (TopLevel, "advanced_mouse_actions", false, Flag),
@@ -5613,6 +5639,9 @@ setting_keys! {
     WebClientMacOptionIsMeta => (WebClient, "mac_option_is_meta", true, Flag),
     WebClientBaseUrl => (WebClient, "base_url", true, Text),
     TerminalFont => (Terminal, "font", false, Text),
+    TerminalFontBold => (Terminal, "font_bold", false, Text),
+    TerminalFontItalic => (Terminal, "font_italic", false, Text),
+    TerminalFontBoldItalic => (Terminal, "font_bold_italic", false, Text),
     TerminalFontSize => (Terminal, "font_size", false, Decimal),
     TerminalFontWeight => (Terminal, "font_weight", false, Number),
     TerminalSystemFonts => (Terminal, "system_fonts", false, Flag),
@@ -5691,10 +5720,12 @@ setting_keys! {
     AttentionTabMarkers => (Attention, "tab_markers", false, Flag),
     AttentionIdleRule => (Attention, "idle_rule", false, Text),
     AttentionDoneThresholdSecs => (Attention, "done_threshold_secs", false, Number),
+    AttentionTrackCommands => (Attention, "track_commands", false, Flag),
     AttentionIdleActivitySecs => (Attention, "idle_activity_secs", false, Number),
     AttentionIdleSilenceSecs => (Attention, "idle_silence_secs", false, Number),
     AttentionStartupCard => (Attention, "startup_card", false, Text),
     AttentionTrayIcon => (Attention, "tray_icon", false, Flag),
+    AttentionEnabled => (Attention, "enabled", false, Flag),
     AttentionNotificationDetails => (Attention, "notification_details", false, Flag),
     AttentionPopupNeedsYou => (AttentionPopups, "needs_you", false, Flag),
     AttentionPopupFailed => (AttentionPopups, "failed", false, Flag),
@@ -6506,7 +6537,7 @@ mod live_view_release_gesture_tests {
         assert_eq!(LiveViewReleaseGesture::parse("Esc Tab"), None);
         assert_eq!(LiveViewReleaseGesture::parse("not a key"), None);
         assert_eq!(
-            LiveViewReleaseGesture::parse(DEFAULT_LIVE_VIEW_RELEASE_KEY),
+            LiveViewReleaseGesture::parse("F9"),
             Some(LiveViewReleaseGesture {
                 key: KeyWithModifier::new(BareKey::F(9)),
                 double: false,
@@ -6517,10 +6548,7 @@ mod live_view_release_gesture_tests {
     #[test]
     fn the_gesture_is_shown_as_a_key_hint() {
         assert_eq!(LiveViewReleaseGesture::display("Esc Esc"), "<ESC> twice");
-        assert_eq!(
-            LiveViewReleaseGesture::display(DEFAULT_LIVE_VIEW_RELEASE_KEY),
-            "<F9>"
-        );
+        assert_eq!(LiveViewReleaseGesture::display("F9"), "<F9>");
         assert_eq!(
             LiveViewReleaseGesture::display("Ctrl Alt Home"),
             "<Ctrl Alt HOME>"

@@ -30,6 +30,7 @@ pub struct PaneContentsAndUi<'a> {
     z_index: Option<usize>,
     pane_is_stacked_under: bool,
     pane_is_stacked_over: bool,
+    stacked_render_override: Option<bool>,
     should_draw_pane_frames: bool,
     mouse_is_hovering_over_pane_for_clients: HashSet<ClientId>,
     current_pane_group: HashMap<ClientId, Vec<PaneId>>,
@@ -39,6 +40,7 @@ pub struct PaneContentsAndUi<'a> {
     stack_list_entry_width: Option<usize>,
     stack_list_entry_is_selected: bool,
     stack_list_entry_stack_is_focused: bool,
+    stack_list_entry_is_in_row: bool,
     blank_title: bool,
     mouse_scroll_resize: bool,
     mouse_hover_tips: bool,
@@ -95,6 +97,7 @@ impl<'a> PaneContentsAndUi<'a> {
             z_index,
             pane_is_stacked_under,
             pane_is_stacked_over,
+            stacked_render_override: None,
             should_draw_pane_frames,
             mouse_is_hovering_over_pane_for_clients,
             current_pane_group,
@@ -104,6 +107,7 @@ impl<'a> PaneContentsAndUi<'a> {
             stack_list_entry_width: None,
             stack_list_entry_is_selected: false,
             stack_list_entry_stack_is_focused: false,
+            stack_list_entry_is_in_row: false,
             blank_title: false,
             mouse_scroll_resize,
             mouse_hover_tips,
@@ -111,6 +115,9 @@ impl<'a> PaneContentsAndUi<'a> {
             dimmed_for_clients,
             live_views: None,
         }
+    }
+    pub fn set_stacked_render_override(&mut self, stacked: bool) {
+        self.stacked_render_override = Some(stacked);
     }
     pub fn set_live_views(&mut self, live_views: crate::pane_mirror::SharedLiveViews) {
         self.live_views = Some(live_views);
@@ -168,10 +175,12 @@ impl<'a> PaneContentsAndUi<'a> {
         stack_list_entry_width: Option<usize>,
         stack_list_entry_is_selected: bool,
         stack_list_entry_stack_is_focused: bool,
+        stack_list_entry_is_in_row: bool,
     ) {
         self.stack_list_entry_width = stack_list_entry_width;
         self.stack_list_entry_is_selected = stack_list_entry_is_selected;
         self.stack_list_entry_stack_is_focused = stack_list_entry_stack_is_focused;
+        self.stack_list_entry_is_in_row = stack_list_entry_is_in_row;
     }
     pub fn render_pane_contents_to_multiple_clients(
         &mut self,
@@ -391,7 +400,9 @@ impl<'a> PaneContentsAndUi<'a> {
         } else {
             None
         };
-        let pane_is_stacked = self.pane.current_geom().is_stacked();
+        let pane_is_stacked = self
+            .stacked_render_override
+            .unwrap_or_else(|| self.pane.current_geom().is_stacked());
         let pane_is_in_group = self
             .current_pane_group
             .get(&client_id)
@@ -402,6 +413,7 @@ impl<'a> PaneContentsAndUi<'a> {
             label: self.pane.stack_list_entry_label(),
             is_selected: self.stack_list_entry_is_selected,
             stack_is_focused: self.stack_list_entry_stack_is_focused,
+            is_in_row: self.stack_list_entry_is_in_row,
             is_emphasized: pane_is_in_group
                 || (self
                     .mouse_is_hovering_over_pane_for_clients
@@ -525,6 +537,8 @@ impl<'a> PaneContentsAndUi<'a> {
             pane_is_on_top_of_stack,
             pane_is_on_bottom_of_stack,
             self.pane_is_stacked_under,
+            self.stacked_render_override
+                .unwrap_or_else(|| self.pane.current_geom().is_stacked()),
         );
     }
     fn frame_color(

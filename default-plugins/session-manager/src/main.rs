@@ -417,6 +417,7 @@ impl State {
                 }
                 self.colors = Colors::new(mode_info.style.colors);
                 self.simplified_ui = mode_info.capabilities.arrow_fonts;
+                self.inbox.shortcut = inbox::inbox_shortcut(&mode_info);
                 let was_web_client = self.is_web_client;
                 self.is_web_client = mode_info.is_web_client.unwrap_or(false);
                 self.remote_client = mode_info.remote_client.clone();
@@ -493,6 +494,16 @@ impl State {
                 badge_colors::set(&global.badge_colors);
                 self.panel.attention = Some(global.clone());
                 should_render = self.inbox.update_global(global);
+                if self.attention_disabled() {
+                    if self.panel.size == Some(PanelSize::Card) {
+                        close_self();
+                        return false;
+                    }
+                    if self.inbox.tab == BrowserTab::Inbox {
+                        self.switch_browser_tab(BrowserTab::Sessions);
+                        should_render = true;
+                    }
+                }
                 if self.away_card_is_empty() {
                     close_self();
                     return false;
@@ -1667,6 +1678,12 @@ impl State {
             return should_render;
         }
 
+        let is_tab_key = key.bare_key == BareKey::Tab
+            && (key.has_no_modifiers() || key.has_only_modifiers(&[KeyModifier::Shift]));
+        if !is_tab_key {
+            self.single_screen_state.reset_tab_cycle();
+        }
+
         match key.bare_key {
             BareKey::Char(character) if key.has_no_modifiers() => {
                 if character == '\n' {
@@ -1702,6 +1719,13 @@ impl State {
             },
             BareKey::Tab if key.has_no_modifiers() => {
                 self.single_screen_state.tab_complete(
+                    &self.sessions.session_ui_infos,
+                    &self.resurrectable_sessions.all_resurrectable_sessions,
+                );
+                should_render = true;
+            },
+            BareKey::Tab if key.has_only_modifiers(&[KeyModifier::Shift]) => {
+                self.single_screen_state.tab_complete_backwards(
                     &self.sessions.session_ui_infos,
                     &self.resurrectable_sessions.all_resurrectable_sessions,
                 );
@@ -2974,10 +2998,9 @@ impl State {
                 "type into the shown pane (again to stop)",
             ));
             hints.push(hint("<click the view>", "type into the shown pane"));
-            hints.push(hint(
-                self.inbox.release_key_text(),
-                "stop typing (or click outside the view)",
-            ));
+            if let Some(stop_key) = self.inbox.stop_typing_key_text() {
+                hints.push(hint(stop_key, "stop typing (or click outside the view)"));
+            }
         }
         if self.selected_session_is_exited() {
             hints.push(hint("<Shift ←↓↑→>", "scroll the preview"));
@@ -3020,7 +3043,7 @@ impl State {
         let muted = item.map(|i| i.item.attention.is_muted()).unwrap_or(false);
         let watched = item.map(|i| i.item.attention.watched).unwrap_or(false);
         let mut hints = if self.inbox.live_mode {
-            vec![
+            let mut live_hints = vec![
                 hint("<ENTER>", "go to the pane"),
                 hint(inbox::TYPE_KEY, "type into the shown pane (again to stop)"),
                 hint("<click the view>", "type into the shown pane"),
@@ -3035,17 +3058,32 @@ impl State {
                         }
                     ),
                 ),
-                hint(
-                    self.inbox.release_key_text(),
-                    "stop typing (or click outside the view)",
-                ),
-            ]
+            ];
+            if let Some(stop_key) = self.inbox.stop_typing_key_text() {
+                live_hints.push(hint(stop_key, "stop typing (or click outside the view)"));
+            }
+            live_hints.push(hint(
+                "<w>",
+                if self.inbox.wide_list {
+                    "narrow the list"
+                } else {
+                    "widen the list"
+                },
+            ));
+            live_hints
         } else {
             vec![hint("<ENTER>", "go to the pane")]
         };
         hints.extend([
             hint("<↓↑>", "select"),
-            hint("<c>", "dismiss (mark seen)"),
+            hint(
+                "<c>",
+                if self.inbox.selected_is_recalled() {
+                    "forget (until the pane reports again)"
+                } else {
+                    "dismiss (mark seen)"
+                },
+            ),
             hint("<ESC>", "close"),
             hint("<m>", if muted { "unmute" } else { "mute" }),
             hint(
@@ -3679,7 +3717,14 @@ impl State {
         }
     }
     fn shows_browser_tabs(&self) -> bool {
-        !self.is_welcome_screen
+        !self.is_welcome_screen && !self.attention_disabled()
+    }
+    fn attention_disabled(&self) -> bool {
+        self.inbox
+            .global
+            .as_ref()
+            .map(|global| global.attention_disabled)
+            .unwrap_or(false)
     }
     fn shows_ages(&self) -> bool {
         self.panel.size == Some(PanelSize::Card) || self.inbox_is_shown()
@@ -3765,6 +3810,7 @@ impl State {
 
     fn show_app_panel_view(&mut self, view: Option<&str>) {
         let keeps_the_inbox = self.app_panel_view_shown
+            && !self.attention_disabled()
             && !self.app_quit
             && self.panel.size == Some(PanelSize::Manager)
             && self.inbox.tab == BrowserTab::Inbox
@@ -3783,8 +3829,12 @@ impl State {
         }
         self.single_screen_state.search_term.clear();
         self.single_screen_state.selected_index = None;
+        // A click on the icon ("auto") opens the inbox only when it has items, and the sessions
+        // otherwise. Asking for the inbox ("Show inbox", `--inbox`) opens it even when empty.
         let tab = match view {
+            _ if self.attention_disabled() => BrowserTab::Sessions,
             Some("sessions") => BrowserTab::Sessions,
+            Some("inbox") => BrowserTab::Inbox,
             _ if !self.inbox.has_rows() => BrowserTab::Sessions,
             _ => BrowserTab::Inbox,
         };
@@ -3797,8 +3847,8 @@ impl State {
     fn follow_app_panel_title(&self) {
         if app_panel::is_enabled() && !self.app_quit {
             self.set_app_panel_title(match self.inbox.tab {
-                BrowserTab::Inbox => "Inbox",
-                BrowserTab::Sessions => "Sessions",
+                BrowserTab::Inbox if !self.attention_disabled() => "Inbox",
+                _ => "Sessions",
             });
         }
     }
@@ -3990,6 +4040,7 @@ impl State {
             },
             BareKey::Enter if plain => self.go_to_selected_inbox_item(),
             BareKey::Char('z') if plain && live => self.inbox.toggle_resize(),
+            BareKey::Char('w') if plain && live => self.inbox.toggle_wide_list(),
             BareKey::Char('c') if plain => self.inbox.dismiss_selected(),
             BareKey::Char('C') if plain || shift => self.inbox.dismiss_all(),
             BareKey::Char('m') if plain => self.inbox.cycle_selected_mute(),
@@ -4384,6 +4435,67 @@ mod live_view_state_tests {
     }
 
     #[test]
+    fn an_inbox_asked_for_by_name_opens_even_when_empty() {
+        let mut state = browser();
+        state.inbox.update_global(nothing_is_left());
+        state.update(Event::Visible(false));
+        state.show_app_panel_view(Some("auto"));
+        assert_eq!(
+            state.inbox.tab,
+            BrowserTab::Sessions,
+            "a click on the icon with nothing in the inbox shows the sessions"
+        );
+        state.show_app_panel_view(Some("inbox"));
+        assert_eq!(state.inbox.tab, BrowserTab::Inbox);
+        assert!(state.inbox_is_shown());
+        state.render_plugin(16, 88);
+    }
+
+    #[test]
+    fn the_first_item_to_reach_an_empty_inbox_is_selected() {
+        let mut state = browser();
+        state.inbox.update_global(nothing_is_left());
+        state.update(Event::Visible(false));
+        state.show_app_panel_view(Some("inbox"));
+        state.update(Event::GlobalAttentionUpdate(only_web_is_left()));
+        assert_eq!(state.inbox.tab, BrowserTab::Inbox);
+        assert!(state.inbox.is_selected(&key_of("web", 2)));
+    }
+
+    fn with_attention_off(mut global: GlobalAttention) -> GlobalAttention {
+        global.attention_disabled = true;
+        global
+    }
+
+    #[test]
+    fn turning_attention_off_shows_only_the_sessions() {
+        let mut state = browser();
+        assert!(state.inbox_is_shown());
+        let global = with_attention_off(only_web_is_left());
+        state.update(Event::GlobalAttentionUpdate(global));
+        assert_eq!(state.inbox.tab, BrowserTab::Sessions);
+        assert!(!state.shows_browser_tabs());
+        assert!(!state.inbox_is_shown());
+        state.render_plugin(16, 88);
+        assert_eq!(state.inbox.live_view_sent, None);
+        state.show_app_panel_view(Some("inbox"));
+        assert_eq!(state.inbox.tab, BrowserTab::Sessions);
+        assert!(!state.inbox_is_shown());
+    }
+
+    #[test]
+    fn turning_attention_back_on_brings_the_inbox_back() {
+        let mut state = browser();
+        state.update(Event::GlobalAttentionUpdate(with_attention_off(
+            only_web_is_left(),
+        )));
+        state.update(Event::GlobalAttentionUpdate(only_web_is_left()));
+        assert!(state.shows_browser_tabs());
+        state.show_app_panel_view(Some("inbox"));
+        assert_eq!(state.inbox.tab, BrowserTab::Inbox);
+    }
+
+    #[test]
     fn a_narrow_browser_lists_the_items_without_a_live_view() {
         let mut state = browser();
         state.render_plugin(16, 50);
@@ -4438,7 +4550,12 @@ mod live_view_state_tests {
         assert!(keys.contains(&"<ENTER>"));
         assert!(keys.contains(&inbox::TYPE_KEY));
         assert!(keys.contains(&"<click the view>"));
-        assert!(keys.contains(&"<F9>"));
+        assert!(!keys.iter().any(|key| key.contains("F9")));
+        state.inbox.shortcut = Some("<Ctrl o> <i>".to_owned());
+        let hints = state.inbox_hints(true);
+        assert!(hints
+            .iter()
+            .any(|hint| hint.key == "<Ctrl o> <i>" && hint.label.contains("stop typing")));
         assert!(!keys
             .iter()
             .any(|key| key.contains("<g>") || key.contains("→")));
@@ -4472,7 +4589,7 @@ mod live_view_state_tests {
             resize_allowed: true,
             pinned: false,
             source_size: None,
-            release_key: "F9".to_owned(),
+            release_key: String::new(),
         };
         state.inbox.apply_live_view_status(status);
         state.render_plugin(16, 88);
@@ -4835,7 +4952,7 @@ mod sessions_live_view_tests {
             resize_allowed: true,
             pinned: true,
             source_size: None,
-            release_key: "F9".to_owned(),
+            release_key: String::new(),
         });
         state.render_plugin(ROWS, COLS);
         assert_eq!(shown(&state), Some(("web".to_owned(), PaneId::Terminal(7))));
@@ -4871,7 +4988,7 @@ mod sessions_live_view_tests {
             resize_allowed: true,
             pinned: true,
             source_size: None,
-            release_key: "F9".to_owned(),
+            release_key: String::new(),
         });
         state.render_plugin(ROWS, COLS);
         assert!(state.inbox.live_view_hint_text().starts_with("typing into"));
@@ -5036,7 +5153,10 @@ mod sessions_live_view_tests {
         assert!(hints
             .iter()
             .any(|hint| hint.key == inbox::TYPE_KEY && hint.label.contains("type")));
-        assert!(hints.iter().any(|hint| hint.key == "<F9>"));
+        assert!(!hints.iter().any(|hint| hint.key.contains("F9")));
+        state.inbox.shortcut = Some("<Ctrl o> <i>".to_owned());
+        let hints = state.sessions_hints(true);
+        assert!(hints.iter().any(|hint| hint.key == "<Ctrl o> <i>"));
         assert!(!hints.iter().any(|hint| hint.key == "<Shift ←↓↑→>"));
         let shift_up = KeyWithModifier::new(BareKey::Up).with_shift_modifier();
         assert_eq!(state.handle_manager_key(&shift_up), None);

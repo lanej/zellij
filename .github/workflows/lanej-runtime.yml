@@ -2,9 +2,9 @@ name: Lanej runtime
 
 on:
   push:
-    branches: [lanej-runtime]
+    branches: [lanej-runtime, lanej-runtime-next]
   pull_request:
-    branches: [lanej-runtime]
+    branches: [lanej-runtime, lanej-runtime-next]
   workflow_dispatch:
 
 permissions:
@@ -68,7 +68,15 @@ jobs:
           rustup run 1.95.0 cargo test --locked \
             -p zellij-integration-tests --test clients --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
-            --target "$host" dotfiles_cli_query
+            --target "$host" cli_query_ignores_completion_from_another_panes_exit
+          rustup run 1.95.0 cargo test --locked \
+            -p zellij-server --lib --no-default-features \
+            --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
+            --target "$host" -- --exact \
+            screen::screen_tests::write_chars_without_a_target_reach_the_pane_under_a_focused_popup \
+            screen::screen_tests::a_bracketed_paste_reaches_the_focused_popup_and_not_the_pane \
+            screen::screen_tests::a_key_press_reaches_the_focused_popup_and_not_the_pane \
+            screen::screen_tests::a_popup_asking_for_permissions_reports_its_focus_to_the_server
           rustup run 1.95.0 cargo test --locked \
             -p zellij-server -p zellij-utils --lib --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
