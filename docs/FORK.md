@@ -61,8 +61,8 @@ The other six independent candidates retain their earlier source/format review s
 | PR | Scope and state |
 | --- | --- |
 | [#4](https://github.com/lanej/zellij/pull/4) | Closed: bundled session-manager help is outside the selected scope; source branch retained |
-| [#7](https://github.com/lanej/zellij/pull/7) | Draft policy review at 87255197: configurable client/host nesting preferences; independent code review approved; local validation recorded below; [new-head CI in progress](https://github.com/lanej/zellij/actions/runs/43128358237) |
-| [#9](https://github.com/lanej/zellij/pull/9) | Ready for fork review at 9bc7fe5c; core-only; native-library Clippy and hosted Linux checks pass; hosted macOS run canceled after one hour |
+| [#7](https://github.com/lanej/zellij/pull/7) | Draft policy review at e156bda6: configurable client/host nesting preferences; independent code review approved; local validation recorded below; [new-head CI in progress](https://github.com/lanej/zellij/actions/runs/43136738796) |
+| [#9](https://github.com/lanej/zellij/pull/9) | Ready for fork review at 2fc05e5d; core-only; [fresh Linux/macOS CI in progress](https://github.com/lanej/zellij/actions/runs/43136742180) after a build-profile repair |
 
 Both active fork PRs forward-merge the shared runtime Clippy fix, keeping that maintenance change out of their capability diffs. PR #7 now adds the explicitly requested configurable nesting feature and remains unmerged for scope review. Their independent upstream candidates remain separate. Before this refresh, #7 had a failed hosted run and #9 had a canceled hosted run; these are not passing results for the new heads. Existing merged PRs and published runtime/stable history remain preserved. No upstream PR was opened or described by this work.
 
@@ -123,3 +123,9 @@ This feature is a fork review, not an upstream submission. The former unconditio
 The feature changes no bundled plugin implementation or shipped keymap. Cycle policy declines unverified identities or incomplete ancestry; older guests can ignore the additive refusal frame. Metadata-disabled sessions do not write UUID sidecars. Local behavioral results and final validation status must refer to the policy head rather than its preceding Clippy-only refresh.
 
 At policy code commit cf837dd1 and the published CI-wiring descendant 87255197, local Rust 1.95.0 validation passes: 5 client, 78 server and 39 utility nesting tests (five existing server ignores); 41 lifecycle/state tests; nine configuration-setting tests; the actual client/server wire-contract round trip; and the whole-app top-level start/switch/reconnect detector with metadata enabled and disabled. Formatting passes. Default Clippy passes for the changed native libraries and CLI, with inherited warnings retained. Independent code review approved the final implementation. Real-terminal/SSH acceptance and new-head hosted results remain unclaimed; the workflow now runs the new detectors on Linux and macOS.
+
+## Hosted CI repairs
+
+The policy head 87255197 failed on both Linux and macOS because the configuration plugin's exhaustive setting matches did not cover AllowNestedSessions and AllowCyclicSessions. The compatibility fix at e156bda640c3395e5a0d73af5c245bb291abf380 completes its metadata/category entries and config-derived help without enabling either option by default. All 163 configuration-plugin tests, native Clippy, WASI compilation, formatting and actionlint pass locally. CI now runs the complete fast configuration suite.
+
+PR #9's preceding macOS job was canceled at its one-hour limit while release compilation was still running. Its head 2fc05e5d26fba23aa75e74bfa61191fad9f0fbb3 changes native CI checks to debug builds with debug symbols disabled and a separate cache prefix; it preserves every detector and the required release WASM fixture. PR #7 uses the same native test profile. Fresh hosted results for both repair heads remain pending at this snapshot; no stable or installation pin was advanced.
