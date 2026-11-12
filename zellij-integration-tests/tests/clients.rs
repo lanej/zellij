@@ -115,7 +115,7 @@ fn go_to_first_tab(client: &TestClient) {
 }
 
 #[test]
-fn dotfiles_cli_query_waits_for_its_reply_after_another_client_closes_a_pane() {
+fn cli_query_waits_for_its_reply_after_another_client_closes_a_pane() {
     use zellij_client::os_input_output::ClientOsApi;
     use zellij_integration_tests::fake_client_os_api::FakeClientOsApi;
     use zellij_utils::input::actions::Action;
