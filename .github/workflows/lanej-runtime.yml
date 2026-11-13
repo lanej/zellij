@@ -49,6 +49,7 @@ jobs:
         run: |
           host=$(rustup run 1.95.0 rustc -vV | sed -n 's/^host: //p')
           test -n "$host"
+          rustup run 1.95.0 cargo test --locked -p bars --target "$host"
           rustup run 1.95.0 cargo test --locked \
             -p zellij-server -p zellij-utils --lib --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
