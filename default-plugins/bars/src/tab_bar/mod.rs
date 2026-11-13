@@ -113,6 +113,7 @@ struct ClientState {
     hint_text: Option<BTreeMap<usize, StyledText>>,
     outstanding_hint_timeouts: usize,
     title_ownership: Option<TitleOwnership>,
+    title_polling_enabled: bool,
     title_query_pending: bool,
     title_query_dirty: bool,
 }
@@ -168,7 +169,7 @@ impl TabBar {
         if self.has_slots() {
             let clients: Vec<_> = self.clients.keys().copied().collect();
             for client_id in clients {
-                if self.clients[&client_id].title_ownership.is_some() {
+                if self.clients[&client_id].title_polling_enabled {
                     self.clients.get_mut(&client_id).unwrap().title_query_dirty = true;
                     self.poll_title_ownership(client_id);
                 }
@@ -293,7 +294,8 @@ impl TabBar {
                 );
                 let changed = client.title_ownership != ownership;
                 client.title_ownership = ownership;
-                if client.title_ownership.is_some() && !self.title_timer_pending {
+                client.title_polling_enabled |= client.title_ownership.is_some();
+                if client.title_polling_enabled && !self.title_timer_pending {
                     self.title_timer_pending = true;
                     self.title_timer_requested = true;
                 }
@@ -395,6 +397,7 @@ impl TabBar {
                 if client.mode_info.session_name != mode_info.session_name || !client.has_mode_info
                 {
                     client.title_ownership = None;
+                    client.title_polling_enabled = false;
                     client.title_query_dirty = true;
                 }
                 if &client.mode_info != mode_info || !client.has_mode_info {
@@ -1032,6 +1035,75 @@ mod tests {
         assert!(!labels(&bar).contains(" "));
         assert_eq!(bar.clients[&1].tabs[0].name, "t7");
         assert!(bar.take_title_timer_request());
+    }
+
+    #[test]
+    fn ownership_refresh_recovers_after_a_failure_without_a_tab_change() {
+        let mut client = client_with_tabs(&[7], 0);
+        client.mode_info.session_name = Some("main".into());
+        client.mode_info.capabilities.arrow_fonts = false;
+        let mut bar = bar_with_line(client);
+        bar.slots.insert(0, SlotConfig::default());
+        let context = BTreeMap::from([("tab-title-client".into(), "1".into())]);
+        let event_context = EventContext {
+            client_id: Some(1),
+            slot_id: None,
+        };
+        let labels = |bar: &TabBar| {
+            bar.compose_line(120, 1, None)
+                .unwrap()
+                .line
+                .iter()
+                .map(|part| part.part.as_str())
+                .collect::<String>()
+        };
+        bar.update(
+            &Event::RunCommandResult(
+                Some(0),
+                br#"{"session":"main","auto_titles":{}}"#.to_vec(),
+                vec![],
+                context.clone(),
+            ),
+            event_context,
+        );
+        assert!(labels(&bar).contains(" t7"));
+        assert!(bar.take_title_timer_request());
+        bar.refresh_title_ownership();
+        assert!(bar.clients[&1].title_query_pending);
+        bar.update(
+            &Event::RunCommandResult(Some(1), vec![], vec![], context.clone()),
+            event_context,
+        );
+        assert!(!labels(&bar).contains(" "));
+        assert!(bar.take_title_timer_request());
+        bar.refresh_title_ownership();
+        assert!(bar.clients[&1].title_query_pending);
+        bar.update(
+            &Event::RunCommandResult(
+                Some(0),
+                br#"{"session":"main","auto_titles":{"7":"t7"}}"#.to_vec(),
+                vec![],
+                context.clone(),
+            ),
+            event_context,
+        );
+        assert!(bar.clients[&1].title_ownership.is_some());
+        assert!(!labels(&bar).contains(" "));
+        assert_eq!(bar.clients[&1].tabs[0].name, "t7");
+        assert!(bar.take_title_timer_request());
+        bar.update(
+            &Event::ModeUpdate(ModeInfo {
+                session_name: Some("another".into()),
+                ..Default::default()
+            }),
+            event_context,
+        );
+        bar.refresh_title_ownership();
+        bar.update(
+            &Event::RunCommandResult(Some(1), vec![], vec![], context),
+            event_context,
+        );
+        assert!(!bar.take_title_timer_request());
     }
 
     #[test]
