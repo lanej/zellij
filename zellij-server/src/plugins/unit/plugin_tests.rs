@@ -14106,6 +14106,7 @@ fn global_attention_with_command_text() -> zellij_utils::attention::GlobalAttent
         vec![(
             "api".to_owned(),
             SessionAttention {
+                server_instance_id: None,
                 status: item.attention.status,
                 counts,
                 muted: false,

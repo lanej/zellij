@@ -90,6 +90,9 @@ pub struct TerminalMetricsPayload {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "type")]
 pub enum WebServerToWebClientControlMessage {
+    EmitNestedSessionFrame {
+        payload_bytes: Vec<u8>,
+    },
     SetConfig(SetConfigPayload),
     QueryTerminalSize,
     Log {

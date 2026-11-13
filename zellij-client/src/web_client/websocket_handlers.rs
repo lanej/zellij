@@ -284,6 +284,7 @@ async fn handle_ws_terminal(
         client_pixel_dims,
         state.pending_welcome_sessions.clone(),
         is_structured_client,
+        params.nested.unwrap_or(true),
     );
 
     let terminal_channel_cancellation_token = CancellationToken::new();
