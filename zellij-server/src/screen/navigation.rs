@@ -1,4 +1,5 @@
 use super::Screen;
+use crate::nested_navigation::NavigationTarget;
 use crate::plugins::{PluginInstruction, PromptCaller, SERVER_NOTICE_CALLER_ID};
 use crate::route::NotificationEnd;
 use crate::{ClientId, ServerInstruction};
@@ -98,10 +99,11 @@ impl Screen {
             );
             return;
         }
-        if let Err(error) = self
-            .navigation_guard
-            .check(client_id, target_identity.as_deref())
-        {
+        let target = match target_identity.as_deref() {
+            Some(id) => NavigationTarget::Existing(id),
+            None => NavigationTarget::New,
+        };
+        if let Err(error) = self.navigation_guard.check(client_id, target) {
             self.reject_session_switch(client_id, error.notice(), completion_tx);
             return;
         }
