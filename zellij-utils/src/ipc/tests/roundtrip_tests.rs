@@ -479,6 +479,8 @@ fn test_client_messages() {
                 .collect(),
             initial_panes: None,
             switch_context: Some(crate::session_history::SwitchContext {
+                expected_server_instance_id: Some("00000000-0000-4000-8000-000000000001".into()),
+                source_cleanup_token: Some("cleanup-token".into()),
                 history: crate::session_history::SessionHistory {
                     back: vec!["api".to_owned()],
                     forward: vec!["docs".to_owned()],
@@ -3861,6 +3863,7 @@ fn test_client_messages() {
     test_client_roundtrip!(ClientToServerMsg::PeerAttentionChanged {
         session_name: "api".to_owned(),
         attention: Some(crate::attention::SessionAttention {
+            server_instance_id: Some("00000000-0000-4000-8000-000000000001".into()),
             status: crate::attention::AttentionStatus::Failed,
             counts: crate::attention::AttentionCounts {
                 failed: 1,
@@ -4405,6 +4408,8 @@ fn test_server_messages() {
             connect_to_session: ConnectToSession {
                 name: Some("api".to_owned()),
                 switch_context: Some(crate::session_history::SwitchContext {
+                    expected_server_instance_id: None,
+                    source_cleanup_token: None,
                     history: crate::session_history::SessionHistory {
                         back: vec!["a".to_owned(), "b".to_owned()],
                         forward: vec!["c".to_owned()],
@@ -4606,6 +4611,7 @@ fn test_server_messages() {
     };
     test_server_roundtrip!(ServerToClientMsg::SessionAttention {
         attention: crate::attention::SessionAttention {
+            server_instance_id: None,
             status: crate::attention::AttentionStatus::NeedsYou,
             counts: crate::attention::AttentionCounts {
                 needs_you: 1,
@@ -4972,4 +4978,17 @@ fn keyboard_copy_client_server_contract() {
         client_id: Some(100),
         is_cli_client: false,
     });
+}
+
+#[test]
+fn session_switch_confirmation_roundtrip() {
+    use crate::client_server_contract::client_server_contract as proto;
+    use prost::Message;
+    let message = ClientToServerMsg::SessionSwitchAttached {
+        source_cleanup_token: "cleanup-token".into(),
+    };
+    let encoded: proto::ClientToServerMsg = message.clone().try_into().unwrap();
+    let decoded = proto::ClientToServerMsg::decode(encoded.encode_to_vec().as_slice()).unwrap();
+    let actual: ClientToServerMsg = decoded.try_into().unwrap();
+    assert_eq!(actual, message);
 }

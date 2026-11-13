@@ -483,6 +483,8 @@ impl MockScreen {
                     default_keybinds,
                     "test-session-id".to_string(),
                     live_view_captures,
+                    "00000000-0000-4000-8000-000000000001".into(),
+                    BTreeMap::new(),
                 )
                 .expect("TEST")
             })
@@ -570,6 +572,8 @@ impl MockScreen {
                     default_keybinds,
                     "test-session-id".to_string(),
                     live_view_captures,
+                    "00000000-0000-4000-8000-000000000001".into(),
+                    BTreeMap::new(),
                 )
                 .expect("TEST")
             })
@@ -613,6 +617,8 @@ impl MockScreen {
                     default_keybinds,
                     "test-session-id".to_string(),
                     live_view_captures,
+                    "00000000-0000-4000-8000-000000000001".into(),
+                    BTreeMap::new(),
                 )
                 .expect("TEST")
             })
@@ -774,6 +780,7 @@ impl MockScreen {
     pub fn clone_session_metadata(&self) -> SessionMetaData {
         // hack that only clones the clonable parts of SessionMetaData
         SessionMetaData {
+            server_instance_id: self.session_metadata.server_instance_id.clone(),
             senders: self.session_metadata.senders.clone(),
             default_shell: self.session_metadata.default_shell.clone(),
             screen_thread: None,
@@ -829,6 +836,7 @@ impl MockScreen {
         };
 
         let session_metadata = SessionMetaData {
+            server_instance_id: "00000000-0000-4000-8000-000000000001".into(),
             senders: ThreadSenders {
                 to_screen_priority: None,
                 to_screen: Some(to_screen.clone()),
@@ -11840,6 +11848,7 @@ fn decode_nested_frame(bytes: &[u8]) -> Option<zellij_utils::nested_session::Nes
 fn guest_announce_message() -> zellij_utils::nested_session::NestedSessionMessage {
     zellij_utils::nested_session::NestedSessionMessage::Announce {
         session_name: "guest-session".to_owned(),
+        server_instance_id: None,
         capabilities: vec![zellij_utils::nested_session::NestedSessionCapability::NestedControl],
     }
 }
@@ -11881,6 +11890,7 @@ pub fn nested_guest_announce_gets_announce_ack_with_ancestry() {
         announce_ack,
         zellij_utils::nested_session::NestedSessionMessage::AnnounceAck {
             ancestry: vec!["zellij-test".to_owned()],
+            identity_ancestry: None,
             capabilities: vec![
                 zellij_utils::nested_session::NestedSessionCapability::NestedControl,
                 zellij_utils::nested_session::NestedSessionCapability::HintReporting
@@ -14970,6 +14980,7 @@ mod nested_hint_reporting {
                 PaneId::Terminal(1),
                 NestedSessionMessage::Announce {
                     session_name: "inner".to_owned(),
+                    server_instance_id: None,
                     capabilities,
                 },
             );
@@ -14987,6 +14998,7 @@ mod nested_hint_reporting {
                 1,
                 NestedSessionMessage::AnnounceAck {
                     ancestry: vec!["outer".to_owned()],
+                    identity_ancestry: None,
                     capabilities,
                     descend_keys: vec![],
                 },
@@ -15125,6 +15137,7 @@ mod nested_hint_reporting {
             PaneId::Terminal(1),
             NestedSessionMessage::Announce {
                 session_name: session_name.to_owned(),
+                server_instance_id: None,
                 capabilities: vec![NestedSessionCapability::NestedControl],
             },
         );

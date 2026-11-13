@@ -1792,7 +1792,7 @@ fn route_action_with_origin(
                 senders
                     .send_to_server(instruction)
                     .with_context(err_context)?;
-                should_break = true;
+                // The server closes this connection only after a validated handoff.
             } else {
                 drop(completion_tx); // no need to wait, this is a no-op
             }
@@ -3626,6 +3626,10 @@ pub(crate) fn route_thread_main(
                             to_server
                                 .send(ServerInstruction::KillSession)
                                 .with_context(err_context)?;
+                        },
+                        ClientToServerMsg::SessionSwitchAttached { source_cleanup_token } => {
+                            let _ = to_server.send(ServerInstruction::SessionSwitchAttached(source_cleanup_token, client_id));
+                            should_break = true;
                         },
                         ClientToServerMsg::ConnStatus => {
                             let _ = to_server.send(ServerInstruction::ConnStatus(client_id));

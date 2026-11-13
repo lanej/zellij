@@ -10,7 +10,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-pub const HOST_TERMINAL_ENV_VARS: [&str; 9] = [
+pub const HOST_TERMINAL_ENV_VARS: [&str; 12] = [
+    "ZELLIJ_NESTED_ATTACH",
+    "ZELLIJ",
+    "ZELLIJ_PANE_ID",
     "SSH_CONNECTION",
     "SSH_TTY",
     "TERM",
