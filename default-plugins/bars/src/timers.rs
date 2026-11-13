@@ -3,6 +3,7 @@ use zellij_tile::prelude::set_timeout;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimerOwner {
     TabBar,
+    TabTitles,
     StatusBar,
 }
 
