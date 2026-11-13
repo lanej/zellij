@@ -2,7 +2,11 @@
 use super::grapheme_join::unit_column_spans;
 use super::grid::{Grid, Row};
 use super::selection::Selection;
+use crate::plugins::PluginId;
+use std::sync::atomic::{AtomicU64, Ordering};
+use zellij_utils::plugin_api::generated_api::api::copy_mode::{self as api, request::Operation};
 use zellij_utils::{data::ClientId, position::Position};
+static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Point {
@@ -13,6 +17,9 @@ struct Point {
 #[derive(Clone)]
 pub struct CopyMode {
     pub owner: ClientId,
+    session_id: u64,
+    labels: Vec<api::Label>,
+    labels_owner: Option<PluginId>,
     invalidated: bool,
     rows: Vec<Row>,
     cursor: Point,
@@ -47,11 +54,16 @@ impl CopyMode {
             "VISUAL"
         };
         format!(
-            "{} {}/{}{}",
+            "{} {}/{}{}{}",
             kind,
             self.cursor.row + 1,
             self.rows.len(),
-            self.count.map(|n| format!(" ×{n}")).unwrap_or_default()
+            self.count.map(|n| format!(" ×{n}")).unwrap_or_default(),
+            if self.labels_owner.is_some() {
+                " · JUMP"
+            } else {
+                ""
+            }
         )
     }
 
@@ -395,6 +407,9 @@ impl Grid {
         };
         let mut mode = CopyMode {
             owner: client_id,
+            session_id: NEXT_SESSION.fetch_add(1, Ordering::Relaxed),
+            labels: vec![],
+            labels_owner: None,
             invalidated: false,
             rows,
             cursor: Point {
@@ -414,6 +429,13 @@ impl Grid {
         self.reset_selection();
         self.mark_for_rerender();
         true
+    }
+
+    pub fn copy_mode_session_id(&self, client_id: ClientId) -> Option<u64> {
+        self.copy_mode
+            .as_ref()
+            .filter(|mode| mode.owner == client_id && !mode.invalidated)
+            .map(|mode| mode.session_id)
     }
 
     pub fn copy_mode_cursor(&self, client_id: Option<ClientId>) -> Option<(usize, usize, bool)> {
@@ -437,6 +459,11 @@ impl Grid {
             return CopyModeResult::Exit;
         }
         let result = mode.input(key, self.width, self.height);
+        self.apply_copy_mode(mode);
+        result
+    }
+
+    fn apply_copy_mode(&mut self, mut mode: CopyMode) {
         let desired_top = if mode.cursor.row < mode.top {
             mode.cursor.row
         } else if mode.cursor.row >= mode.top + self.height {
@@ -462,7 +489,6 @@ impl Grid {
         self.copy_mode = Some(mode);
         self.output_buffer.update_all_lines();
         self.mark_for_rerender();
-        result
     }
 
     pub fn end_copy_mode(&mut self, client_id: ClientId) -> bool {
@@ -478,6 +504,189 @@ impl Grid {
             true
         } else {
             false
+        }
+    }
+}
+
+impl Grid {
+    pub fn copy_mode_plugin(
+        &mut self,
+        request: api::Request,
+        client_id: ClientId,
+        plugin_id: PluginId,
+    ) -> Result<Option<api::Snapshot>, String> {
+        let mode = self.copy_mode.as_ref().ok_or("No active copy session")?;
+        if mode.owner != client_id || mode.invalidated {
+            return Err("Copy session is unavailable for this client".into());
+        }
+        let operation = request.operation.ok_or("Missing copy operation")?;
+        let token = match &operation {
+            Operation::Read(_) => None,
+            Operation::SetLabels(labels) => Some(labels.session_id),
+            Operation::MoveCursor(target) => Some(target.session_id),
+            Operation::ClearLabels(token) => Some(*token),
+        };
+        if token.is_some_and(|token| token != mode.session_id) {
+            return Err("Copy session expired".into());
+        }
+        match operation {
+            Operation::Read(_) => {
+                let mut cells = vec![];
+                for row in mode.top..(mode.top + self.height).min(mode.rows.len()) {
+                    let mut column = 0;
+                    let mut row_cells: Vec<api::Cell> = vec![];
+                    for cell in &mode.rows[row].columns {
+                        let width = cell.width();
+                        if column >= self.width {
+                            break;
+                        }
+                        let start = mode.snap_column(row, column);
+                        if let Some(previous) =
+                            row_cells.last_mut().filter(|c| c.column == start as u64)
+                        {
+                            cell.push_text_to(&mut previous.text);
+                            previous.width += width as u64;
+                        } else {
+                            row_cells.push(api::Cell {
+                                row: row as u64,
+                                column: start as u64,
+                                width: width as u64,
+                                text: cell.text().into_owned(),
+                            });
+                        }
+                        column += width;
+                    }
+                    cells.extend(row_cells);
+                }
+                Ok(Some(api::Snapshot {
+                    session_id: mode.session_id,
+                    width: self.width as u64,
+                    height: self.height as u64,
+                    cells,
+                }))
+            },
+            Operation::SetLabels(labels) => {
+                if labels.labels.len() > self.width.saturating_mul(self.height) {
+                    return Err("Too many copy labels".into());
+                }
+                for label in &labels.labels {
+                    let row = usize::try_from(label.row).map_err(|_| "Invalid label row")?;
+                    let column =
+                        usize::try_from(label.column).map_err(|_| "Invalid label column")?;
+                    if row < mode.top
+                        || row >= mode.top + self.height
+                        || row >= mode.rows.len()
+                        || column >= self.width
+                        || mode.snap_column(row, column) != column
+                        || label.text.len() != 1
+                        || !label.text.as_bytes()[0].is_ascii_alphanumeric()
+                    {
+                        return Err("Labels must be single ASCII letters or digits at visible cell boundaries".into());
+                    }
+                }
+                if mode.labels_owner.is_some_and(|owner| owner != plugin_id) {
+                    return Err("Copy labels belong to another plugin".into());
+                }
+                let mode = self.copy_mode.as_mut().unwrap();
+                mode.labels = labels.labels;
+                mode.labels_owner = Some(plugin_id);
+                self.output_buffer.update_all_lines();
+                self.mark_for_rerender();
+                Ok(None)
+            },
+            Operation::MoveCursor(target) => {
+                let row = usize::try_from(target.row).map_err(|_| "Invalid target row")?;
+                let column = usize::try_from(target.column).map_err(|_| "Invalid target column")?;
+                if row >= mode.rows.len()
+                    || column >= self.width
+                    || mode.snap_column(row, column) != column
+                {
+                    return Err("Target is not a copy cell boundary".into());
+                }
+                let mut mode = self.copy_mode.take().unwrap();
+                mode.cursor = Point { row, column };
+                mode.goal_column = column;
+                mode.count = None;
+                mode.pending_g = false;
+                mode.labels.clear();
+                mode.labels_owner = None;
+                self.apply_copy_mode(mode);
+                Ok(None)
+            },
+            Operation::ClearLabels(_) => {
+                self.clear_copy_mode_labels(plugin_id, client_id);
+                Ok(None)
+            },
+        }
+    }
+
+    pub fn clear_copy_mode_labels(&mut self, plugin_id: PluginId, client_id: ClientId) {
+        if let Some(mode) = self
+            .copy_mode
+            .as_mut()
+            .filter(|mode| mode.labels_owner == Some(plugin_id) && mode.owner == client_id)
+        {
+            mode.labels.clear();
+            mode.labels_owner = None;
+            self.output_buffer.update_all_lines();
+            self.mark_for_rerender();
+        }
+    }
+
+    pub fn apply_copy_mode_labels(
+        &self,
+        chunks: &mut [crate::output::CharacterChunk],
+        x: usize,
+        y: usize,
+        style: &zellij_utils::data::Style,
+    ) {
+        use super::terminal_character::{
+            AnsiCode, RcCharacterStyles, TerminalCharacter, RESET_STYLES,
+        };
+        let Some(mode) = self
+            .copy_mode
+            .as_ref()
+            .filter(|mode| !mode.invalidated && !mode.labels.is_empty())
+        else {
+            return;
+        };
+        let mut styles = RESET_STYLES;
+        styles.foreground = Some(AnsiCode::from(style.colors.text_unselected.background));
+        styles.background = Some(AnsiCode::from(style.colors.text_unselected.emphasis_2));
+        styles.bold = Some(AnsiCode::On);
+        let styles = RcCharacterStyles::from(styles);
+        for chunk in chunks {
+            let row = mode.top + chunk.y.saturating_sub(y);
+            if row >= mode.rows.len() {
+                continue;
+            }
+            let mut column = chunk.x.saturating_sub(x);
+            let mut characters = vec![];
+            for cell in &chunk.terminal_characters {
+                let width = cell.width();
+                let unit_start = mode.snap_column(row, column);
+                if let Some(label) = mode
+                    .labels
+                    .iter()
+                    .find(|label| label.row == row as u64 && label.column == unit_start as u64)
+                {
+                    for offset in 0..width {
+                        let character = if column + offset == unit_start {
+                            label.text.as_bytes()[0] as char
+                        } else {
+                            ' '
+                        };
+                        characters.push(TerminalCharacter::new_singlewidth_styled(
+                            character,
+                            styles.clone(),
+                        ));
+                    }
+                } else {
+                    characters.push(cell.clone());
+                }
+                column += width;
+            }
+            chunk.terminal_characters = characters;
         }
     }
 }

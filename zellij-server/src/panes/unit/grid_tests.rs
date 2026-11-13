@@ -11720,3 +11720,93 @@ fn keyboard_copy_shared_viewport_cannot_move_under_the_selection() {
         Some("line01")
     );
 }
+
+#[test]
+fn copy_plugin_moves_selection_using_native_unicode_cells_and_rejects_stale_sessions() {
+    use zellij_utils::plugin_api::generated_api::api::copy_mode::{
+        request::Operation, Label, Labels, Request, Target,
+    };
+    let mut grid = create_grid_with_size_and_raw(3, 40, "界e\u{301} beta".as_bytes());
+    assert!(grid.start_copy_mode(1));
+    let read = Request {
+        operation: Some(Operation::Read(true)),
+    };
+    let snapshot = grid.copy_mode_plugin(read.clone(), 1, 7).unwrap().unwrap();
+    assert!(grid.copy_mode_plugin(read.clone(), 2, 7).is_err());
+    let wide = &snapshot.cells[0];
+    assert_eq!((&*wide.text, wide.column, wide.width), ("界", 0, 2));
+    let accent = &snapshot.cells[1];
+    assert_eq!(
+        (&*accent.text, accent.column, accent.width),
+        ("e\u{301}", 2, 1)
+    );
+    keyboard_copy_keys(&mut grid, &["g", "g", "v"]);
+    let target = Target {
+        session_id: snapshot.session_id,
+        row: 0,
+        column: 2,
+    };
+    grid.copy_mode_plugin(
+        Request {
+            operation: Some(Operation::MoveCursor(target.clone())),
+        },
+        1,
+        7,
+    )
+    .unwrap();
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["y"]).as_deref(),
+        Some("界e\u{301}")
+    );
+    let mut invalid = target.clone();
+    invalid.column = 1;
+    assert!(grid
+        .copy_mode_plugin(
+            Request {
+                operation: Some(Operation::MoveCursor(invalid))
+            },
+            1,
+            7
+        )
+        .is_err());
+    let labels = Labels {
+        session_id: snapshot.session_id,
+        labels: vec![Label {
+            row: 0,
+            column: 2,
+            text: "a".into(),
+        }],
+    };
+    grid.copy_mode_plugin(
+        Request {
+            operation: Some(Operation::SetLabels(labels)),
+        },
+        1,
+        7,
+    )
+    .unwrap();
+    let mut chunks = grid.render(0, 0, &Style::default()).unwrap().unwrap().0;
+    grid.apply_copy_mode_labels(&mut chunks, 0, 0, &Style::default());
+    assert!(chunks
+        .iter()
+        .flat_map(|chunk| &chunk.terminal_characters)
+        .any(|cell| cell.character == 'a'));
+    grid.end_copy_mode(1);
+    assert!(grid.start_copy_mode(1));
+    assert_ne!(
+        grid.copy_mode_plugin(read, 1, 7)
+            .unwrap()
+            .unwrap()
+            .session_id,
+        snapshot.session_id
+    );
+    assert!(grid
+        .copy_mode_plugin(
+            Request {
+                operation: Some(Operation::MoveCursor(target))
+            },
+            1,
+            7
+        )
+        .is_err());
+}

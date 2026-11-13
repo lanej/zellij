@@ -685,7 +685,9 @@ impl WasmBridge {
             if running_plugin.lock().unwrap().intercepting_key_presses() {
                 let _ = self
                     .senders
-                    .send_to_screen(ScreenInstruction::ClearKeyPressesIntercepts(client_id));
+                    .send_to_screen(ScreenInstruction::ClearKeyPressesIntercepts(
+                        client_id, plugin_id,
+                    ));
             }
             // Clear any regex highlights this plugin registered across all panes
             let _ = self
@@ -763,7 +765,18 @@ impl WasmBridge {
 
         Ok(())
     }
+    fn clear_copy_interception_for_plugin(&self, plugin_id: PluginId) {
+        for client_id in self.connected_clients.lock().unwrap().iter().copied() {
+            let _ = self
+                .senders
+                .send_to_screen(ScreenInstruction::ClearKeyPressesIntercepts(
+                    client_id, plugin_id,
+                ));
+        }
+    }
+
     pub fn reload_plugin_with_id(&mut self, plugin_id: u32) -> Result<()> {
+        self.clear_copy_interception_for_plugin(plugin_id);
         let _ = self
             .senders
             .send_to_screen(ScreenInstruction::ClearLiveViewsOfPlugin(plugin_id));
@@ -1602,7 +1615,9 @@ impl WasmBridge {
             if running_plugin.lock().unwrap().intercepting_key_presses() {
                 let _ = self
                     .senders
-                    .send_to_screen(ScreenInstruction::ClearKeyPressesIntercepts(client_id));
+                    .send_to_screen(ScreenInstruction::ClearKeyPressesIntercepts(
+                        client_id, plugin_id,
+                    ));
             }
             let _ = self.senders.send_to_screen(
                 ScreenInstruction::UpdateBackgroundPluginSubscriptions(
@@ -3041,6 +3056,7 @@ impl WasmBridge {
         }
     }
     fn reload_shared_instance(&mut self, instance_id: PluginId) {
+        self.clear_copy_interception_for_plugin(instance_id);
         if !self.shared_instances.contains_key(&instance_id) {
             return;
         }

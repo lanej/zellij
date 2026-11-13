@@ -5052,6 +5052,7 @@ type Context = BTreeMap<String, String>;
 #[strum_discriminants(derive(EnumString, Hash, Serialize, Deserialize))]
 #[strum_discriminants(name(CommandType))]
 pub enum PluginCommand {
+    CopyMode(crate::plugin_api::generated_api::api::copy_mode::Request),
     Subscribe(HashSet<EventType>),
     Unsubscribe(HashSet<EventType>),
     SetSelectable(bool),

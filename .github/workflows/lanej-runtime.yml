@@ -13,10 +13,15 @@ permissions:
 jobs:
   native-regressions:
     if: github.repository == 'lanej/zellij'
+    name: native-regressions (${{ matrix.check_name }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-24.04
+            check_name: ubuntu-latest
+          - os: macos-15-intel
+            check_name: macos-latest
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     defaults:
@@ -26,11 +31,18 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
+      ZELLIJ_COPY_MODE_FIXTURE_WASM: ${{ github.workspace }}/target/wasm32-wasip1/release/fixture-plugin-for-tests.wasm
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
     steps:
       - uses: actions/checkout@v4
       - name: Install native build tools on Linux
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential cmake pkg-config libssl-dev
+        run: |
+          if ! command -v cc || ! command -v cmake || ! command -v pkg-config || ! pkg-config --exists openssl; then
+            sudo apt-get update --error-on=any -o Acquire::Retries=3
+            sudo apt-get install -y -o Acquire::Retries=3 build-essential cmake pkg-config libssl-dev
+          fi
       - name: Install native build tools on macOS
         if: runner.os == 'macOS'
         run: brew install cmake pkg-config openssl@3
@@ -45,6 +57,10 @@ jobs:
             target
           key: lanej-runtime-debug-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
           restore-keys: lanej-runtime-debug-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
+      - name: Build native copy API test fixture
+        run: |
+          rustup target add --toolchain 1.95.0 wasm32-wasip1
+          rustup run 1.95.0 cargo build --locked --release -p fixture-plugin-for-tests --target wasm32-wasip1
       - name: Verify native reliability fixes
         run: |
           host=$(rustup run 1.95.0 rustc -vV | sed -n 's/^host: //p')
@@ -79,6 +95,10 @@ jobs:
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
             --target "$host" keyboard_copy
           rustup run 1.95.0 cargo test --locked \
-            -p zellij-integration-tests --test keyboard_copy --no-default-features \
+            -p zellij-integration-tests --test keyboard_copy --test copy_mode_plugin_api --no-default-features \
             --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-client/web_server_capability,zellij-utils/web_server_capability \
             --target "$host"
+          rustup run 1.95.0 cargo test --locked \
+            -p zellij-server --lib --no-default-features \
+            --features zellij-utils/vendored_curl,zellij-server/web_server_capability,zellij-utils/web_server_capability \
+            --target "$host" copy_plugin

@@ -1,0 +1,42 @@
+syntax = "proto3";
+package api.copy_mode;
+
+// Coordinates address display cells in a frozen copy session, not UTF-8 offsets.
+message Cell {
+  uint64 row = 1;
+  uint64 column = 2;
+  uint64 width = 3;
+  string text = 4;
+}
+message Snapshot {
+  uint64 session_id = 1;
+  uint64 width = 2;
+  uint64 height = 3;
+  repeated Cell cells = 4;
+}
+message Label {
+  uint64 row = 1;
+  uint64 column = 2;
+  string text = 3;
+}
+message Labels {
+  uint64 session_id = 1;
+  repeated Label labels = 2;
+}
+message Target {
+  uint64 session_id = 1;
+  uint64 row = 2;
+  uint64 column = 3;
+}
+message Request {
+  oneof operation {
+    bool read = 1;
+    Labels set_labels = 2;
+    Target move_cursor = 3;
+    uint64 clear_labels = 4;
+  }
+}
+message Response {
+  optional Snapshot snapshot = 1;
+  optional string error = 2;
+}
