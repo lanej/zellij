@@ -1602,6 +1602,7 @@ message AttentionItem {
 }
 
 message SessionAttention {
+  optional string server_instance_id = 6;
   AttentionStatus status = 1;
   AttentionCounts counts = 2;
   bool muted = 3;
@@ -1634,6 +1635,8 @@ message SessionArrival {
 }
 
 message SwitchContext {
+  optional string expected_server_instance_id = 6;
+  optional string source_cleanup_token = 7;
   SessionHistory history = 1;
   optional SessionArrival arrival = 2;
   optional string from_session = 3;
