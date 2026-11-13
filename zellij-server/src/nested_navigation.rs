@@ -6,6 +6,11 @@ use uuid::Uuid;
 pub(crate) const MAX_NESTING_DEPTH: usize = 32;
 pub(crate) const DISCOVERY_GRACE: Duration = Duration::from_secs(3);
 
+pub(crate) enum NavigationTarget<'a> {
+    New,
+    Existing(&'a str),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum NavigationError {
     AncestorTarget,
@@ -158,7 +163,7 @@ impl NavigationGuard {
     pub(crate) fn check(
         &self,
         client_id: ClientId,
-        target_id: Option<&str>,
+        target: NavigationTarget<'_>,
     ) -> Result<(), NavigationError> {
         match self.clients.get(&client_id) {
             None
@@ -170,8 +175,11 @@ impl NavigationGuard {
                 ids: Some(ancestry),
                 ..
             }) => {
-                let id = target_id
-                    .and_then(|id| Uuid::parse_str(id).ok())
+                let NavigationTarget::Existing(target_id) = target else {
+                    return Ok(());
+                };
+                let id = Uuid::parse_str(target_id)
+                    .ok()
                     .ok_or(NavigationError::MissingTarget)?
                     .to_string();
                 if ancestry.contains(&id) {
@@ -210,14 +218,40 @@ mod tests {
         guard.configure_client(1, true, now);
         guard.settle_ordinary(1, now + Duration::from_secs(30));
         assert_eq!(
-            guard.check(1, Some(HOST)),
+            guard.check(1, NavigationTarget::Existing(HOST)),
             Err(NavigationError::NestingContextUnavailable)
         );
         assert_eq!(guard.descendant_ancestry(), None);
         guard.record_ancestry(1, vec!["main".into()], Some(vec![HOST.into()]));
         assert_eq!(
-            guard.check(1, Some(HOST)),
+            guard.check(1, NavigationTarget::Existing(HOST)),
             Err(NavigationError::AncestorTarget)
+        );
+    }
+    #[test]
+    fn fresh_destination_requires_known_nesting_but_not_an_existing_identity() {
+        let now = Instant::now();
+        let mut guard = NavigationGuard::new(OWN.into());
+        guard.configure_client(1, true, now);
+        guard.settle_ordinary(1, now + Duration::from_secs(30));
+        assert_eq!(
+            guard.check(1, NavigationTarget::New),
+            Err(NavigationError::NestingContextUnavailable)
+        );
+        guard.record_ancestry(1, vec!["main".into()], None);
+        assert_eq!(
+            guard.check(1, NavigationTarget::New),
+            Err(NavigationError::NestingContextUnavailable)
+        );
+        guard.record_ancestry(1, vec!["main".into()], Some(vec![HOST.into()]));
+        assert!(guard.check(1, NavigationTarget::New).is_ok());
+        assert_eq!(
+            guard.check(1, NavigationTarget::Existing(HOST)),
+            Err(NavigationError::AncestorTarget)
+        );
+        assert_eq!(
+            guard.check(1, NavigationTarget::Existing("malformed")),
+            Err(NavigationError::MissingTarget)
         );
     }
     #[test]
@@ -228,7 +262,7 @@ mod tests {
         guard.configure_client(2, false, now);
         assert_eq!(guard.descendant_ancestry(), None);
         guard.settle_ordinary(2, now + DISCOVERY_GRACE);
-        assert!(guard.check(2, Some(HOST)).is_ok());
+        assert!(guard.check(2, NavigationTarget::Existing(HOST)).is_ok());
         guard.record_ancestry(3, vec!["main".into()], Some(vec![OTHER.into()]));
         assert_eq!(guard.descendant_ancestry(), None);
         guard.remove_client(3);
@@ -237,7 +271,7 @@ mod tests {
             Some(vec![HOST.into(), OWN.into()])
         );
         assert_eq!(
-            guard.check(1, Some(HOST)),
+            guard.check(1, NavigationTarget::Existing(HOST)),
             Err(NavigationError::AncestorTarget)
         );
     }
@@ -256,7 +290,7 @@ mod tests {
         let mut guard = NavigationGuard::new(OWN.into());
         guard.record_ancestry(1, vec!["main".into()], None);
         assert_eq!(
-            guard.check(1, Some(OTHER)),
+            guard.check(1, NavigationTarget::Existing(OTHER)),
             Err(NavigationError::NestingContextUnavailable)
         );
         assert_eq!(guard.descendant_ancestry(), None);
