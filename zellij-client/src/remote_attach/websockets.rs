@@ -181,6 +181,7 @@ pub struct ClientDeclaration {
     pub size: Option<zellij_utils::pane_size::Size>,
     pub cell: Option<zellij_utils::pane_size::SizeInPixels>,
     pub structured: bool,
+    pub nested: Option<bool>,
 }
 
 impl ClientDeclaration {
@@ -197,6 +198,9 @@ impl ClientDeclaration {
         }
         if self.structured {
             query.push_str("&structured=true");
+        }
+        if let Some(nested) = self.nested {
+            query.push_str(&format!("&nested={nested}"));
         }
         query
     }
@@ -340,10 +344,11 @@ mod tests {
                 height: 18,
             }),
             structured: true,
+            nested: Some(false),
         };
         assert_eq!(
             declaration.query(),
-            "&rows=40&cols=120&cell_width=7&cell_height=18&structured=true"
+            "&rows=40&cols=120&cell_width=7&cell_height=18&structured=true&nested=false"
         );
     }
 }

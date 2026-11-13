@@ -123,6 +123,9 @@ pub fn inbound(wire: Inbound) -> std::result::Result<ServerToClientMsg, String> 
         Inbound::Frame(frame) => Ok(ServerToClientMsg::RenderFrame { frame }),
         Inbound::Ansi(content) => Ok(ServerToClientMsg::Render { content }),
         Inbound::Control(control) => match control {
+            WebServerToWebClientControlMessage::EmitNestedSessionFrame { payload_bytes } => {
+                Ok(ServerToClientMsg::EmitNestedSessionFrame { payload_bytes })
+            },
             WebServerToWebClientControlMessage::HostTerminalThemeChanged { mode } => {
                 Ok(ServerToClientMsg::HostTerminalThemeChanged { mode })
             },
@@ -315,6 +318,7 @@ pub fn open(
             size: Some(geometry.size()),
             cell: geometry.pixel_dimensions().character_cell_size,
             structured: true,
+            nested: Some(false),
         },
         Prompting::Never,
     )

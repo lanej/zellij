@@ -65,7 +65,18 @@ pub fn create_first_message(
     initial_layout: Option<LayoutInfo>,
     switch_context: Option<zellij_utils::session_history::SwitchContext>,
     focus: (Option<usize>, Option<(u32, bool)>),
+    expects_nested: bool,
 ) -> ClientToServerMsg {
+    let host_terminal_env = std::collections::BTreeMap::from([
+        (
+            zellij_utils::nested_session::EXPECT_NESTED_ENV.into(),
+            if expects_nested { "1" } else { "0" }.into(),
+        ),
+        (
+            zellij_utils::nested_session::VERIFIED_SWITCH_CAPABILITY.into(),
+            "1".into(),
+        ),
+    ]);
     let resurrection_layout = resurrection_layout(&session_name).ok().flatten();
 
     let layout_info = if resurrection_layout.is_some() {
@@ -104,7 +115,7 @@ pub fn create_first_message(
             max_panes: None,
             force_run_layout_commands: false,
             cwd: None,
-            host_terminal_env: Default::default(),
+            host_terminal_env: host_terminal_env.clone(),
             initial_panes: None,
             switch_context,
         };
@@ -126,7 +137,7 @@ pub fn create_first_message(
             max_panes: None,
             force_run_layout_commands: false,
             cwd: None,
-            host_terminal_env: Default::default(),
+            host_terminal_env: host_terminal_env.clone(),
             initial_panes: None,
             switch_context,
         };
