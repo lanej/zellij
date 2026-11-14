@@ -183,6 +183,13 @@ impl NavigationGuard {
             Some(ClientNesting::Ordinary) => Ok(()),
         }
     }
+
+    pub(crate) fn check_new(&self, client_id: ClientId) -> Result<(), NavigationError> {
+        match self.clients.get(&client_id) {
+            Some(ClientNesting::Ordinary | ClientNesting::Nested { ids: Some(_), .. }) => Ok(()),
+            _ => Err(NavigationError::NestingContextUnavailable),
+        }
+    }
 }
 
 pub(crate) fn accepts_switch_target(
@@ -203,6 +210,29 @@ mod tests {
     const OWN: &str = "00000000-0000-4000-8000-000000000001";
     const HOST: &str = "00000000-0000-4000-8000-000000000002";
     const OTHER: &str = "00000000-0000-4000-8000-000000000003";
+    #[test]
+    fn new_destinations_require_known_context_without_relaxing_existing_target_checks() {
+        let now = Instant::now();
+        let mut guard = NavigationGuard::new(OWN.into());
+        guard.configure_client(1, false, now);
+        guard.configure_client(2, true, now);
+        guard.record_ancestry(3, vec!["main".into()], None);
+        for client in [1, 2, 3, 4] {
+            assert_eq!(
+                guard.check_new(client),
+                Err(NavigationError::NestingContextUnavailable)
+            );
+        }
+        guard.settle_ordinary(1, now + DISCOVERY_GRACE);
+        assert!(guard.check_new(1).is_ok());
+        guard.record_ancestry(2, vec!["main".into()], Some(vec![HOST.into()]));
+        assert!(guard.check_new(2).is_ok());
+        assert_eq!(guard.check(2, None), Err(NavigationError::MissingTarget));
+        assert_eq!(
+            guard.check(2, Some(HOST)),
+            Err(NavigationError::AncestorTarget)
+        );
+    }
     #[test]
     fn delayed_ack_never_promotes_expected_nesting_and_descendants_stay_unknown() {
         let now = Instant::now();

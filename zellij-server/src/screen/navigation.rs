@@ -98,10 +98,13 @@ impl Screen {
             );
             return;
         }
-        if let Err(error) = self
-            .navigation_guard
-            .check(client_id, target_identity.as_deref())
-        {
+        let navigation = if existing_target {
+            self.navigation_guard
+                .check(client_id, target_identity.as_deref())
+        } else {
+            self.navigation_guard.check_new(client_id)
+        };
+        if let Err(error) = navigation {
             self.reject_session_switch(client_id, error.notice(), completion_tx);
             return;
         }
