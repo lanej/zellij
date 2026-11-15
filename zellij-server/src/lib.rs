@@ -20,6 +20,7 @@ mod global_async_runtime;
 mod logging_pipe;
 mod mobile_web;
 pub mod nested_guest;
+mod nested_navigation;
 pub mod notifications;
 mod pane_groups;
 pub mod pane_mirror;
@@ -143,10 +144,12 @@ pub enum ServerInstruction {
     ),
     AttachWatcherClient(ClientId, Size, bool), // bool -> is_web_client
     ConnStatus(ClientId),
+    SessionSwitchAttached(String, ClientId),
     Log(Vec<String>, ClientId, Option<NotificationEnd>),
     LogError(Vec<String>, ClientId, Option<NotificationEnd>),
     SwitchSession(ConnectToSession, ClientId, Option<NotificationEnd>),
     SwitchSessionAndCloseCurrent(ConnectToSession, ClientId, Option<NotificationEnd>),
+    ValidatedSessionSwitch(ConnectToSession, ClientId, Option<NotificationEnd>, bool),
     HistoryMove(
         zellij_utils::session_history::HistoryMove,
         ClientId,
@@ -268,10 +271,13 @@ impl From<&ServerInstruction> for ServerContext {
             ServerInstruction::DetachSession(..) => ServerContext::DetachSession,
             ServerInstruction::AttachClient(..) => ServerContext::AttachClient,
             ServerInstruction::AttachWatcherClient(..) => ServerContext::AttachClient,
-            ServerInstruction::ConnStatus(..) => ServerContext::ConnStatus,
+            ServerInstruction::ConnStatus(..) | ServerInstruction::SessionSwitchAttached(..) => {
+                ServerContext::ConnStatus
+            },
             ServerInstruction::Log(..) => ServerContext::Log,
             ServerInstruction::LogError(..) => ServerContext::LogError,
-            ServerInstruction::SwitchSession(..) => ServerContext::SwitchSession,
+            ServerInstruction::SwitchSession(..)
+            | ServerInstruction::ValidatedSessionSwitch(..) => ServerContext::SwitchSession,
             ServerInstruction::SwitchSessionAndCloseCurrent(..) => {
                 ServerContext::SwitchSessionAndCloseCurrent
             },
@@ -1078,6 +1084,7 @@ pub(crate) struct ConfigFileState {
 }
 
 pub(crate) struct SessionMetaData {
+    pub server_instance_id: String,
     pub senders: ThreadSenders,
     pub default_shell: Option<TerminalAction>,
     pub current_input_modes: HashMap<ClientId, InputMode>,
@@ -1800,6 +1807,10 @@ impl AppliedEnv {
         for (name, value) in &self.config {
             pane_env.insert(name.clone(), Some(value.clone()));
         }
+        pane_env.insert(
+            zellij_utils::nested_session::EXPECT_NESTED_ENV.into(),
+            Some("1".into()),
+        );
         pane_env
     }
 }
@@ -2723,6 +2734,7 @@ mod session_state_tests {
             .as_deref()
             .and_then(|path| read_config_file(path).ok().flatten());
         let session = SessionMetaData {
+            server_instance_id: uuid::Uuid::new_v4().to_string(),
             senders: ThreadSenders {
                 to_screen: Some(SenderWithContext::new(to_screen)),
                 to_plugin: Some(SenderWithContext::new(to_plugin)),
@@ -3362,14 +3374,18 @@ fn handle_new_connection(
         ClientToServerMsg::RequestSessionAttention {
             include_command_text,
         } => {
-            let senders = session_data
+            let context = session_data
                 .read()
                 .unwrap()
                 .as_ref()
-                .map(|s| s.senders.clone());
-            let attention = senders
-                .map(|senders| {
-                    crate::session_link::local_session_attention(&senders, include_command_text)
+                .map(|s| (s.senders.clone(), s.server_instance_id.clone()));
+            let attention = context
+                .map(|(senders, instance_id)| {
+                    crate::session_link::local_session_attention_with_identity(
+                        &senders,
+                        instance_id,
+                        include_command_text,
+                    )
                 })
                 .unwrap_or_default();
             answer_before_registration(
@@ -3901,6 +3917,7 @@ pub fn start_server_impl(
     let mut client_histories: HashMap<ClientId, zellij_utils::session_history::SessionHistory> =
         HashMap::new();
     let mut last_detached_at_ms: Option<u64> = None;
+    let mut pending_source_cleanup: HashMap<String, std::time::Instant> = HashMap::new();
     loop {
         let attached_client_count = session_state.read().unwrap().attached_client_count();
         if attached_client_count != last_attached_client_count {
@@ -3920,6 +3937,23 @@ pub fn start_server_impl(
         err_ctx.add_call(ContextType::IPCServer((&instruction).into()));
         match instruction {
             ServerInstruction::FirstClientConnected(cli_assets, is_web_client, client_id) => {
+                if cli_assets
+                    .switch_context
+                    .as_ref()
+                    .and_then(|c| c.expected_server_instance_id.as_ref())
+                    .is_some()
+                {
+                    let _ = os_input.send_to_client(client_id, ServerToClientMsg::Exit {
+                        exit_reason: ExitReason::Error("The destination session changed during navigation. The source session and its programs were preserved.".into()),
+                    });
+                    remove_client!(client_id, os_input, session_state, session_data);
+                    if session_data.read().unwrap().is_none()
+                        && session_state.read().unwrap().client_ids().is_empty()
+                    {
+                        break;
+                    }
+                    continue;
+                }
                 let is_resumed_session = match &cli_assets.layout {
                     Some(LayoutInfo::File(path, _)) => Path::new(path)
                         .starts_with(&*zellij_utils::consts::ZELLIJ_SESSION_INFO_CACHE_DIR),
@@ -4160,6 +4194,14 @@ pub fn start_server_impl(
                             startup_card: switch_context.startup_card,
                         }),
                     );
+                    if let (Some(source), Some(token)) = (
+                        switch_context.from_session.as_ref(),
+                        switch_context.source_cleanup_token.as_ref(),
+                    ) {
+                        let _ = session_data.senders.send_to_screen(
+                            ScreenInstruction::ConfirmSessionSwitch(source.clone(), token.clone()),
+                        );
+                    }
                     report_attached_client_history(
                         &mut client_histories,
                         &session_data.senders,
@@ -4188,6 +4230,7 @@ pub fn start_server_impl(
                 is_web_client,
                 client_id,
             ) => {
+                let session_data_store = session_data.clone();
                 let mut rlock = session_data.write().unwrap();
                 let Some(session_data) = rlock.as_mut() else {
                     drop(rlock);
@@ -4207,6 +4250,20 @@ pub fn start_server_impl(
                     remove_client!(client_id, os_input, session_state, session_data);
                     continue;
                 };
+                let context = cli_assets.switch_context.as_ref();
+                if !crate::nested_navigation::accepts_switch_target(
+                    context.and_then(|c| c.expected_server_instance_id.as_deref()),
+                    context.is_some_and(|c| c.is_a_switch()),
+                    &session_data.server_instance_id,
+                    false,
+                ) {
+                    let _ = os_input.send_to_client(client_id, ServerToClientMsg::Exit {
+                        exit_reason: ExitReason::Error("The destination session changed during navigation. The source session and its programs were preserved.".into()),
+                    });
+                    drop(rlock);
+                    remove_client!(client_id, os_input, session_state, session_data_store);
+                    continue;
+                }
                 let config = session_data.session_configuration.saved_config.clone();
                 let host_terminal_env = cli_assets.host_terminal_env.clone();
                 let is_a_reattach = !session_state
@@ -4289,6 +4346,16 @@ pub fn start_server_impl(
                         pane_id_to_focus,
                     ))
                     .unwrap();
+                if let Some(context) = cli_assets.switch_context.as_ref() {
+                    if let (Some(source), Some(token)) = (
+                        context.from_session.as_ref(),
+                        context.source_cleanup_token.as_ref(),
+                    ) {
+                        let _ = session_data.senders.send_to_screen(
+                            ScreenInstruction::ConfirmSessionSwitch(source.clone(), token.clone()),
+                        );
+                    }
+                }
                 session_data
                     .senders
                     .send_to_plugin(PluginInstruction::AddClient(client_id))
@@ -4662,6 +4729,28 @@ pub fn start_server_impl(
                 }
                 break;
             },
+            ServerInstruction::SessionSwitchAttached(token, client_id) => {
+                let _ = os_input.send_to_client(client_id, ServerToClientMsg::Connected);
+                let confirmed = pending_source_cleanup
+                    .remove(&token)
+                    .is_some_and(|deadline| deadline > std::time::Instant::now());
+                let command_was_run = session_data
+                    .read()
+                    .unwrap()
+                    .as_ref()
+                    .map(|s| {
+                        s.terminal_command_submitted
+                            .load(std::sync::atomic::Ordering::SeqCst)
+                    })
+                    .unwrap_or(true);
+                if confirmed
+                    && !command_was_run
+                    && session_state.read().unwrap().attached_client_count() == 0
+                {
+                    delete_session_on_exit = true;
+                    break;
+                }
+            },
             ServerInstruction::ConnStatus(client_id) => {
                 let _ = os_input.send_to_client(client_id, ServerToClientMsg::Connected);
             },
@@ -4718,29 +4807,15 @@ pub fn start_server_impl(
                 client_id,
                 completion_tx,
             ) => {
-                let switching_away = connect_to_session.name.is_some()
-                    && connect_to_session.name.as_deref() != Some(own_session_name.as_str());
-                let command_was_run = session_data
-                    .read()
-                    .unwrap()
-                    .as_ref()
-                    .map(|s| {
-                        s.terminal_command_submitted
-                            .load(std::sync::atomic::Ordering::SeqCst)
-                    })
-                    .unwrap_or(true);
-                let other_clients_attached = session_state
-                    .read()
-                    .unwrap()
-                    .other_clients_are_attached(client_id);
-                let _ = to_server.send(ServerInstruction::SwitchSession(
-                    connect_to_session,
-                    client_id,
-                    completion_tx,
-                ));
-                if switching_away && !command_was_run && !other_clients_attached {
-                    delete_session_on_exit = true;
-                    let _ = to_server.send(ServerInstruction::KillSession);
+                if let Some(data) = session_data.read().unwrap().as_ref() {
+                    let _ = data
+                        .senders
+                        .send_to_screen(ScreenInstruction::ValidateSessionSwitch {
+                            connect_to_session,
+                            client_id,
+                            completion_tx,
+                            close_current: true,
+                        });
                 }
             },
             ServerInstruction::HistoryMove(history_move, client_id, completion_tx) => {
@@ -4777,7 +4852,24 @@ pub fn start_server_impl(
                     },
                 }
             },
-            ServerInstruction::SwitchSession(mut connect_to_session, client_id, completion_tx) => {
+            ServerInstruction::SwitchSession(connect_to_session, client_id, completion_tx) => {
+                if let Some(data) = session_data.read().unwrap().as_ref() {
+                    let _ = data
+                        .senders
+                        .send_to_screen(ScreenInstruction::ValidateSessionSwitch {
+                            connect_to_session,
+                            client_id,
+                            completion_tx,
+                            close_current: false,
+                        });
+                }
+            },
+            ServerInstruction::ValidatedSessionSwitch(
+                mut connect_to_session,
+                client_id,
+                completion_tx,
+                close_current,
+            ) => {
                 if connect_to_session.name.as_deref() == Some(own_session_name.as_str()) {
                     log::error!("Cannot attach to same session");
                 } else {
@@ -4787,6 +4879,32 @@ pub fn start_server_impl(
                         &own_session_name,
                         client_id,
                     );
+                    let command_was_run = session_data
+                        .read()
+                        .unwrap()
+                        .as_ref()
+                        .map(|s| {
+                            s.terminal_command_submitted
+                                .load(std::sync::atomic::Ordering::SeqCst)
+                        })
+                        .unwrap_or(true);
+                    let other_clients_attached = session_state
+                        .read()
+                        .unwrap()
+                        .other_clients_are_attached(client_id);
+                    if close_current && !command_was_run && !other_clients_attached {
+                        let token = uuid::Uuid::new_v4().to_string();
+                        pending_source_cleanup
+                            .retain(|_, deadline| *deadline > std::time::Instant::now());
+                        pending_source_cleanup.insert(
+                            token.clone(),
+                            std::time::Instant::now() + std::time::Duration::from_secs(30),
+                        );
+                        connect_to_session
+                            .switch_context
+                            .get_or_insert_with(Default::default)
+                            .source_cleanup_token = Some(token);
+                    }
                     let layout_dir = session_data
                         .read()
                         .unwrap()
@@ -5501,6 +5619,7 @@ fn init_session(
     client_id: ClientId,
     session_id: String,
 ) -> SessionMetaData {
+    let server_instance_id = uuid::Uuid::new_v4().to_string();
     config.options = config.options.merge(*config_options.clone());
     if config.has_command_line_keybinds() {
         config.resolve_keybinds();
@@ -5618,6 +5737,8 @@ fn init_session(
             let default_keybinds = default_keybinds.clone();
             let session_id = session_id.clone();
             let live_view_captures = live_view_captures.clone();
+            let server_instance_id = server_instance_id.clone();
+            let host_terminal_env = cli_assets.host_terminal_env.clone();
             move || {
                 screen_thread_main(
                     screen_bus,
@@ -5630,6 +5751,8 @@ fn init_session(
                     default_keybinds,
                     session_id,
                     live_view_captures,
+                    server_instance_id,
+                    host_terminal_env,
                 )
                 .fatal();
             }
@@ -5782,6 +5905,7 @@ fn init_session(
     ));
 
     SessionMetaData {
+        server_instance_id,
         senders: ThreadSenders {
             to_screen: Some(to_screen),
             to_screen_priority: Some(to_screen_priority),
@@ -6183,6 +6307,8 @@ fn history_move_switch(
                 name: Some(target),
                 switch_context: Some(zellij_utils::session_history::SwitchContext {
                     history,
+                    expected_server_instance_id: None,
+                    source_cleanup_token: None,
                     arrival: Some(history_move.into()),
                     from_session: Some(own_session_name.to_owned()),
                     startup_card: None,

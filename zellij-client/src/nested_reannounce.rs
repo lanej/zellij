@@ -11,6 +11,7 @@ use zellij_utils::nested_session::{
 #[derive(Clone)]
 pub struct NestedReannounce {
     scheduler: Arc<Mutex<ReannounceScheduler>>,
+    identity: Arc<Mutex<(String, Option<String>)>>,
     wakeup: Arc<Condvar>,
     stop: Arc<AtomicBool>,
     thread: Arc<Mutex<Option<std::thread::JoinHandle<()>>>>,
@@ -20,11 +21,13 @@ impl NestedReannounce {
     pub fn spawn(os_input: Box<dyn ClientOsApi>, session_name: String) -> Self {
         let handle = NestedReannounce {
             scheduler: Arc::new(Mutex::new(ReannounceScheduler::new(Instant::now()))),
+            identity: Arc::new(Mutex::new((session_name, None))),
             wakeup: Arc::new(Condvar::new()),
             stop: Arc::new(AtomicBool::new(false)),
             thread: Arc::new(Mutex::new(None)),
         };
         let scheduler = handle.scheduler.clone();
+        let identity = handle.identity.clone();
         let wakeup = handle.wakeup.clone();
         let stop = handle.stop.clone();
         let thread = std::thread::Builder::new()
@@ -48,8 +51,10 @@ impl NestedReannounce {
                     if !should_announce {
                         continue;
                     }
+                    let (session_name, server_instance_id) = identity.lock().unwrap().clone();
                     let announce = NestedSessionMessage::Announce {
-                        session_name: session_name.clone(),
+                        session_name,
+                        server_instance_id,
                         capabilities: vec![
                             NestedSessionCapability::NestedControl,
                             NestedSessionCapability::HintReporting,
@@ -66,6 +71,10 @@ impl NestedReannounce {
             });
         *handle.thread.lock().unwrap() = thread.ok();
         handle
+    }
+
+    pub fn set_identity(&self, session_name: String, instance_id: Option<String>) {
+        *self.identity.lock().unwrap() = (session_name, instance_id);
     }
 
     pub fn note_host_contact(&self) {

@@ -42,7 +42,12 @@ message ClientToServerMsg {
     ClientPaneMirrorMsg pane_mirror = 35;
     AdoptSessionHistoryMsg adopt_session_history = 36;
     ClipboardPasteSupportMsg clipboard_paste_support = 37;
+    SessionSwitchAttachedMsg session_switch_attached = 38;
   }
+}
+
+message SessionSwitchAttachedMsg {
+  string source_cleanup_token = 1;
 }
 
 message DetachSessionMsg {

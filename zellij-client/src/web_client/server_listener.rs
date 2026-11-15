@@ -38,6 +38,7 @@ pub fn zellij_server_listener(
     client_pixel_dims: Option<SizeInPixels>,
     pending_welcome_sessions: PendingWelcomeSessions,
     is_structured_client: bool,
+    expects_nested: bool,
 ) {
     let _server_listener_thread = std::thread::Builder::new()
         .name("server_listener".to_string())
@@ -126,7 +127,7 @@ pub fn zellij_server_listener(
                     }
 
                     let should_create_new_session = !session_exists;
-                    let first_message = create_first_message(is_read_only, config_file_path.clone(), client_attributes.clone(), config_options.clone(), should_create_new_session, &session_name, initial_layout, switch_context, focus);
+                    let first_message = create_first_message(is_read_only, config_file_path.clone(), client_attributes.clone(), config_options.clone(), should_create_new_session, &session_name, initial_layout, switch_context, focus, expects_nested);
                     let zellij_ipc_pipe = create_ipc_pipe(&session_name, session_exists);
 
                     session_manager.spawn_session_if_needed(
@@ -284,7 +285,9 @@ pub fn zellij_server_listener(
                             // Subscribe-only messages — not relevant for web clients
                             Some(ServerToClientMsg::PaneRenderUpdate { .. }) => {},
                             Some(ServerToClientMsg::SubscribedPaneClosed { .. }) => {},
-                            Some(ServerToClientMsg::EmitNestedSessionFrame { .. }) => {},
+                            Some(ServerToClientMsg::EmitNestedSessionFrame { payload_bytes }) => {
+                                client_connection_bus.send_control(WebServerToWebClientControlMessage::EmitNestedSessionFrame { payload_bytes });
+                            },
                             Some(ServerToClientMsg::HostProgramStatus { .. }) => {},
                             Some(ServerToClientMsg::SessionAttention { .. }) => {},
                             Some(ServerToClientMsg::SessionPreview { .. }) => {},

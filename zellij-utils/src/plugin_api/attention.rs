@@ -345,6 +345,7 @@ impl TryFrom<ProtobufSessionAttention> for SessionAttention {
     type Error = &'static str;
     fn try_from(attention: ProtobufSessionAttention) -> Result<Self, &'static str> {
         Ok(SessionAttention {
+            server_instance_id: None,
             status: AttentionStatus::from_str(&attention.status).unwrap_or_default(),
             counts: attention.counts.map(|c| c.into()).unwrap_or_default(),
             muted: attention.muted,
@@ -513,6 +514,7 @@ mod tests {
                 (
                     "api".to_owned(),
                     SessionAttention {
+                        server_instance_id: None,
                         status: AttentionStatus::NeedsYou,
                         counts,
                         muted: false,

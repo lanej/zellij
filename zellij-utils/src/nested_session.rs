@@ -19,6 +19,23 @@ const BASE64_DECODER: GeneralPurpose = GeneralPurpose::new(
     GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
 );
 
+pub const EXPECT_NESTED_ENV: &str = "ZELLIJ_NESTED_ATTACH";
+pub const VERIFIED_SWITCH_CAPABILITY: &str = "ZELLIJ_VERIFIED_SWITCH";
+
+// A marked nested attach must never become ordinary merely because its host is slow.
+pub fn expects_nested_attachment(env: &std::collections::BTreeMap<String, String>) -> bool {
+    match env.get(EXPECT_NESTED_ENV).map(String::as_str) {
+        Some("0") => false,
+        Some(_) => true,
+        None => {
+            env.contains_key("ZELLIJ")
+                || env.contains_key("ZELLIJ_PANE_ID")
+                || env.contains_key("SSH_CONNECTION")
+                || env.contains_key("SSH_TTY")
+        },
+    }
+}
+
 pub const NESTED_DCS_PARAM: u16 = 26661;
 pub const NESTED_FRAME_HEADER: &[u8] = b"\x1bP26661n";
 pub const NESTED_FRAME_TERMINATOR: &[u8] = b"\x1b\\";
@@ -111,6 +128,7 @@ pub enum NestedSessionCapability {
 pub enum NestedSessionMessage {
     Announce {
         session_name: String,
+        server_instance_id: Option<String>,
         capabilities: Vec<NestedSessionCapability>,
     },
     FocusHost {
@@ -123,6 +141,7 @@ pub enum NestedSessionMessage {
     Bye,
     AnnounceAck {
         ancestry: Vec<String>,
+        identity_ancestry: Option<Vec<String>>,
         capabilities: Vec<NestedSessionCapability>,
         descend_keys: Vec<KeyWithModifier>,
     },
@@ -135,6 +154,7 @@ pub enum NestedSessionMessage {
     },
     AncestryUpdate {
         ancestry: Vec<String>,
+        identity_ancestry: Option<Vec<String>>,
     },
     Ping,
     ShortcutUpdate {
@@ -304,9 +324,11 @@ impl From<NestedSessionMessage> for proto::NestedSessionMessage {
         let payload = match message {
             NestedSessionMessage::Announce {
                 session_name,
+                server_instance_id,
                 capabilities,
             } => Payload::Announce(proto::Announce {
                 session_name,
+                server_instance_id,
                 capabilities: capabilities_to_proto(&capabilities),
             }),
             NestedSessionMessage::FocusHost { direction } => Payload::FocusHost(proto::FocusHost {
@@ -319,10 +341,16 @@ impl From<NestedSessionMessage> for proto::NestedSessionMessage {
             NestedSessionMessage::Bye => Payload::Bye(proto::Bye {}),
             NestedSessionMessage::AnnounceAck {
                 ancestry,
+                identity_ancestry,
                 capabilities,
                 descend_keys,
             } => Payload::AnnounceAck(proto::AnnounceAck {
                 ancestry,
+                identity_ancestry: identity_ancestry.map(|server_instance_ids| {
+                    proto::IdentityAncestry {
+                        server_instance_ids,
+                    }
+                }),
                 capabilities: capabilities_to_proto(&capabilities),
                 descend_keys: keys_to_proto(&descend_keys),
             }),
@@ -335,9 +363,17 @@ impl From<NestedSessionMessage> for proto::NestedSessionMessage {
             NestedSessionMessage::FullscreenState { fullscreen } => {
                 Payload::FullscreenState(proto::FullscreenState { fullscreen })
             },
-            NestedSessionMessage::AncestryUpdate { ancestry } => {
-                Payload::AncestryUpdate(proto::AncestryUpdate { ancestry })
-            },
+            NestedSessionMessage::AncestryUpdate {
+                ancestry,
+                identity_ancestry,
+            } => Payload::AncestryUpdate(proto::AncestryUpdate {
+                ancestry,
+                identity_ancestry: identity_ancestry.map(|server_instance_ids| {
+                    proto::IdentityAncestry {
+                        server_instance_ids,
+                    }
+                }),
+            }),
             NestedSessionMessage::Ping => Payload::Ping(proto::Ping {}),
             NestedSessionMessage::ShortcutUpdate {
                 ascend_keys,
@@ -394,6 +430,7 @@ impl TryFrom<proto::NestedSessionMessage> for NestedSessionMessage {
         match message.payload {
             Some(Payload::Announce(announce)) => Ok(NestedSessionMessage::Announce {
                 session_name: announce.session_name,
+                server_instance_id: announce.server_instance_id,
                 capabilities: capabilities_from_proto(&announce.capabilities),
             }),
             Some(Payload::FocusHost(focus_host)) => Ok(NestedSessionMessage::FocusHost {
@@ -408,6 +445,9 @@ impl TryFrom<proto::NestedSessionMessage> for NestedSessionMessage {
             Some(Payload::Bye(_)) => Ok(NestedSessionMessage::Bye),
             Some(Payload::AnnounceAck(announce_ack)) => Ok(NestedSessionMessage::AnnounceAck {
                 ancestry: announce_ack.ancestry,
+                identity_ancestry: announce_ack
+                    .identity_ancestry
+                    .map(|a| a.server_instance_ids),
                 capabilities: capabilities_from_proto(&announce_ack.capabilities),
                 descend_keys: keys_from_proto(&announce_ack.descend_keys),
             }),
@@ -423,6 +463,9 @@ impl TryFrom<proto::NestedSessionMessage> for NestedSessionMessage {
             Some(Payload::AncestryUpdate(ancestry_update)) => {
                 Ok(NestedSessionMessage::AncestryUpdate {
                     ancestry: ancestry_update.ancestry,
+                    identity_ancestry: ancestry_update
+                        .identity_ancestry
+                        .map(|a| a.server_instance_ids),
                 })
             },
             Some(Payload::Ping(_)) => Ok(NestedSessionMessage::Ping),
@@ -619,6 +662,7 @@ mod tests {
         vec![
             NestedSessionMessage::Announce {
                 session_name: "guest".to_owned(),
+                server_instance_id: None,
                 capabilities: vec![
                     NestedSessionCapability::NestedControl,
                     NestedSessionCapability::HintReporting,
@@ -633,6 +677,7 @@ mod tests {
             NestedSessionMessage::Bye,
             NestedSessionMessage::AnnounceAck {
                 ancestry: vec!["outer".to_owned(), "middle".to_owned()],
+                identity_ancestry: None,
                 capabilities: vec![
                     NestedSessionCapability::NestedControl,
                     NestedSessionCapability::HintReporting,
@@ -649,6 +694,7 @@ mod tests {
             NestedSessionMessage::FullscreenState { fullscreen: true },
             NestedSessionMessage::AncestryUpdate {
                 ancestry: vec!["outer".to_owned()],
+                identity_ancestry: None,
             },
             NestedSessionMessage::Ping,
             NestedSessionMessage::ShortcutUpdate {
@@ -737,6 +783,56 @@ mod tests {
     }
 
     #[test]
+    fn identity_exchange_preserves_known_and_unknown_ancestry() {
+        let id = "00000000-0000-4000-8000-000000000001".to_owned();
+        for message in [
+            NestedSessionMessage::Announce {
+                session_name: "main".into(),
+                server_instance_id: Some(id.clone()),
+                capabilities: vec![],
+            },
+            NestedSessionMessage::AnnounceAck {
+                ancestry: vec!["main".into()],
+                identity_ancestry: Some(vec![id.clone()]),
+                capabilities: vec![],
+                descend_keys: vec![],
+            },
+            NestedSessionMessage::AncestryUpdate {
+                ancestry: vec!["main".into()],
+                identity_ancestry: Some(vec![id]),
+            },
+            NestedSessionMessage::AncestryUpdate {
+                ancestry: vec!["main".into()],
+                identity_ancestry: None,
+            },
+        ] {
+            assert_eq!(decode_payload(&encode_payload(&message)), Some(message));
+        }
+    }
+
+    #[test]
+    fn nested_startup_markers_and_unmarked_ssh_are_not_ordinary() {
+        use std::collections::BTreeMap;
+        assert!(!expects_nested_attachment(&BTreeMap::new()));
+        for key in [
+            EXPECT_NESTED_ENV,
+            "ZELLIJ",
+            "ZELLIJ_PANE_ID",
+            "SSH_CONNECTION",
+            "SSH_TTY",
+        ] {
+            assert!(expects_nested_attachment(&BTreeMap::from([(
+                key.into(),
+                "1".into()
+            )])));
+        }
+        assert!(!expects_nested_attachment(&BTreeMap::from([
+            (EXPECT_NESTED_ENV.into(), "0".into()),
+            ("SSH_CONNECTION".into(), "1".into())
+        ])));
+    }
+
+    #[test]
     fn focus_direction_roundtrip_preserves_every_direction() {
         let directions = [
             None,
@@ -765,6 +861,7 @@ mod tests {
     fn frame_roundtrip_preserves_message() {
         let message = NestedSessionMessage::Announce {
             session_name: "guest".to_owned(),
+            server_instance_id: None,
             capabilities: vec![NestedSessionCapability::NestedControl],
         };
         let frame = encode_frame(&message);
@@ -785,6 +882,7 @@ mod tests {
     fn truncated_payload_is_rejected() {
         let payload = encode_payload(&NestedSessionMessage::Announce {
             session_name: "a-long-session-name-to-truncate".to_owned(),
+            server_instance_id: None,
             capabilities: vec![],
         });
         assert_eq!(decode_payload(&payload[..payload.len() - 5]), None);

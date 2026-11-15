@@ -44,11 +44,19 @@ pub mod nested_session_message {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct IdentityAncestry {
+    #[prost(string, repeated, tag="1")]
+    pub server_instance_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Announce {
     #[prost(string, tag="1")]
     pub session_name: ::prost::alloc::string::String,
     #[prost(enumeration="NestedCapability", repeated, tag="2")]
     pub capabilities: ::prost::alloc::vec::Vec<i32>,
+    #[prost(string, optional, tag="3")]
+    pub server_instance_id: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -79,6 +87,8 @@ pub struct AnnounceAck {
     pub capabilities: ::prost::alloc::vec::Vec<i32>,
     #[prost(string, repeated, tag="3")]
     pub descend_keys: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, optional, tag="4")]
+    pub identity_ancestry: ::core::option::Option<IdentityAncestry>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -109,6 +119,8 @@ pub struct FullscreenState {
 pub struct AncestryUpdate {
     #[prost(string, repeated, tag="1")]
     pub ancestry: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, optional, tag="2")]
+    pub identity_ancestry: ::core::option::Option<IdentityAncestry>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

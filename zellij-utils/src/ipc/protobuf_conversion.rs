@@ -166,6 +166,13 @@ impl From<ClientToServerMsg> for ProtoClientToServerMsg {
                     SoftKeyboardVisibilityChangedMsg { visible },
                 )
             },
+            ClientToServerMsg::SessionSwitchAttached {
+                source_cleanup_token,
+            } => client_to_server_msg::Message::SessionSwitchAttached(
+                crate::client_server_contract::client_server_contract::SessionSwitchAttachedMsg {
+                    source_cleanup_token,
+                },
+            ),
             ClientToServerMsg::NestedSessionFrameFromHost { payload_bytes } => {
                 client_to_server_msg::Message::NestedSessionFrameFromHost(
                     NestedSessionFrameFromHostMsg { payload_bytes },
@@ -400,6 +407,11 @@ impl TryFrom<ProtoClientToServerMsg> for ClientToServerMsg {
             Some(client_to_server_msg::Message::SoftKeyboardVisibilityChanged(msg)) => {
                 Ok(ClientToServerMsg::SoftKeyboardVisibilityChanged {
                     visible: msg.visible,
+                })
+            },
+            Some(client_to_server_msg::Message::SessionSwitchAttached(msg)) => {
+                Ok(ClientToServerMsg::SessionSwitchAttached {
+                    source_cleanup_token: msg.source_cleanup_token,
                 })
             },
             Some(client_to_server_msg::Message::NestedSessionFrameFromHost(msg)) => {

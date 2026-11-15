@@ -44,6 +44,7 @@ mod attention;
 mod hidden_bars;
 mod live_view;
 mod mirror;
+mod navigation;
 mod popups;
 
 use log::{debug, warn};
@@ -1018,6 +1019,14 @@ pub enum ScreenInstruction {
         anchor: Option<zellij_utils::data::PreviewAnchor>,
         response_channel: crossbeam::channel::Sender<zellij_utils::data::SessionPreview>,
     },
+    SettleClientNesting(ClientId),
+    ConfirmSessionSwitch(String, String),
+    ValidateSessionSwitch {
+        connect_to_session: zellij_utils::data::ConnectToSession,
+        client_id: ClientId,
+        completion_tx: Option<NotificationEnd>,
+        close_current: bool,
+    },
     GetSessionAttention {
         include_command_text: bool,
         response_channel: crossbeam::channel::Sender<zellij_utils::attention::SessionAttention>,
@@ -1631,6 +1640,9 @@ impl From<&ScreenInstruction> for ScreenContext {
             },
             ScreenInstruction::SetGraphemeClusters(..) => ScreenContext::SetGraphemeClusters,
             ScreenInstruction::GetSessionPreview { .. } => ScreenContext::GetSessionPreview,
+            ScreenInstruction::SettleClientNesting(..)
+            | ScreenInstruction::ConfirmSessionSwitch(..)
+            | ScreenInstruction::ValidateSessionSwitch { .. } => ScreenContext::GetSessionAttention,
             ScreenInstruction::GetSessionAttention { .. } => ScreenContext::GetSessionAttention,
             ScreenInstruction::GlobalAttentionUpdate(..) => ScreenContext::GlobalAttentionUpdate,
             ScreenInstruction::ClientSessionHistory { .. }
@@ -2183,6 +2195,8 @@ pub(crate) struct Screen {
     paste_buffer_read_enabled: bool,
     nested_guest_tracker: NestedGuestTracker,
     nested_ancestry: Vec<String>,
+    navigation_guard: crate::nested_navigation::NavigationGuard,
+    guest_instance_ids: HashMap<PaneId, String>,
     nested_via_client_id: Option<ClientId>,
     nested_fullscreen_panes: HashSet<PaneId>,
     own_fullscreen_requested: bool,
@@ -2197,6 +2211,8 @@ pub(crate) struct Screen {
     guest_last_mode: HashMap<PaneId, GuestModeReport>,
     pending_keybinds_requests: HashMap<u64, PendingKeybindsRequest>,
     next_keybinds_request_id: u64,
+    host_controls_by_client:
+        HashMap<ClientId, (Vec<NestedSessionCapability>, Vec<KeyWithModifier>)>,
     host_capabilities: Vec<NestedSessionCapability>,
     held_keybinds_requests: HashMap<ClientId, VecDeque<u64>>,
     own_keybinds_generation: u64,
@@ -2563,6 +2579,10 @@ impl Screen {
             paste_buffer_read_enabled: false,
             nested_guest_tracker: NestedGuestTracker::default(),
             nested_ancestry: vec![],
+            navigation_guard: crate::nested_navigation::NavigationGuard::new(
+                uuid::Uuid::new_v4().to_string(),
+            ),
+            guest_instance_ids: HashMap::new(),
             nested_via_client_id: None,
             nested_fullscreen_panes: HashSet::new(),
             own_fullscreen_requested: false,
@@ -2577,6 +2597,7 @@ impl Screen {
             guest_last_mode: HashMap::new(),
             pending_keybinds_requests: HashMap::new(),
             next_keybinds_request_id: 0,
+            host_controls_by_client: HashMap::new(),
             host_capabilities: vec![],
             held_keybinds_requests: HashMap::new(),
             own_keybinds_generation: 0,
@@ -4238,9 +4259,15 @@ impl Screen {
         match message {
             NestedSessionMessage::Announce {
                 session_name,
+                server_instance_id,
                 capabilities,
             } => {
-                self.handle_nested_guest_announce(pane_id, session_name, capabilities);
+                self.handle_nested_guest_announce(
+                    pane_id,
+                    session_name,
+                    server_instance_id,
+                    capabilities,
+                );
             },
             NestedSessionMessage::Pong => {
                 self.nested_guest_tracker.on_pong(pane_id, Instant::now());
@@ -4703,9 +4730,28 @@ impl Screen {
         &mut self,
         pane_id: PaneId,
         guest_session_name: String,
+        server_instance_id: Option<String>,
         guest_capabilities: Vec<NestedSessionCapability>,
     ) {
         use crate::nested_guest::AnnounceKind;
+        if self.nested_ancestry.len() >= crate::nested_navigation::MAX_NESTING_DEPTH {
+            log::warn!(
+                "Rejected nested guest in {:?}: maximum ancestry depth",
+                pane_id
+            );
+            return;
+        }
+        if let Some(id) = server_instance_id.as_ref() {
+            if uuid::Uuid::parse_str(id).is_err()
+                || uuid::Uuid::parse_str(id).ok()
+                    == uuid::Uuid::parse_str(&self.navigation_guard.instance_id).ok()
+                || self.navigation_guard.contains_ancestor(id)
+            {
+                log::warn!("Rejected cyclic or invalid nested guest in {:?}", pane_id);
+                return;
+            }
+            self.guest_instance_ids.insert(pane_id, id.clone());
+        }
         let terminal_id = match pane_id {
             PaneId::Terminal(terminal_id) => terminal_id,
             PaneId::Plugin(_) => return,
@@ -4747,6 +4793,7 @@ impl Screen {
         let mut ancestry = self.nested_ancestry.clone();
         ancestry.push(self.session_name.clone());
         let announce_ack = NestedSessionMessage::AnnounceAck {
+            identity_ancestry: self.guest_identity_ancestry(),
             ancestry,
             capabilities: vec![
                 NestedSessionCapability::NestedControl,
@@ -5121,6 +5168,7 @@ impl Screen {
     }
 
     pub fn clear_nested_guest(&mut self, pane_id: PaneId) {
+        self.guest_instance_ids.remove(&pane_id);
         let was_nested_guest = self.nested_guest_tracker.is_known(pane_id);
         self.nested_guest_tracker.remove(pane_id);
         self.guest_ascend_keys.remove(&pane_id);
@@ -5516,7 +5564,10 @@ impl Screen {
     fn broadcast_ancestry_update_to_guests(&self) {
         let mut ancestry = self.nested_ancestry.clone();
         ancestry.push(self.session_name.clone());
-        let message = NestedSessionMessage::AncestryUpdate { ancestry };
+        let message = NestedSessionMessage::AncestryUpdate {
+            ancestry,
+            identity_ancestry: self.guest_identity_ancestry(),
+        };
         let frame = nested_session::encode_frame(&message);
         for terminal_id in self.nested_guest_terminal_ids() {
             let _ = self
@@ -5660,13 +5711,30 @@ impl Screen {
         match message {
             NestedSessionMessage::AnnounceAck {
                 ancestry,
+                identity_ancestry,
                 capabilities,
                 descend_keys,
             } => {
+                if !self
+                    .navigation_guard
+                    .validate_ancestry(&ancestry, identity_ancestry.as_deref())
+                {
+                    self.navigation_guard.note_unresolved_host(client_id);
+                    self.broadcast_ancestry_update_to_guests();
+                    log::warn!("Rejected invalid host ancestry for client {}", client_id);
+                    return;
+                }
+                self.navigation_guard.record_ancestry(
+                    client_id,
+                    ancestry.clone(),
+                    identity_ancestry.clone(),
+                );
                 log::info!(
                     "nested session handshake complete: this session is nested inside ancestry {:?}",
                     ancestry
                 );
+                self.host_controls_by_client
+                    .insert(client_id, (capabilities.clone(), descend_keys.clone()));
                 self.nested_ancestry = ancestry;
                 self.nested_via_client_id = Some(client_id);
                 self.host_descend_keys = descend_keys;
@@ -5686,7 +5754,12 @@ impl Screen {
                 self.report_upward();
             },
             NestedSessionMessage::ShortcutUpdate { descend_keys, .. } => {
-                if self.host_descend_keys != descend_keys {
+                if let Some((_, keys)) = self.host_controls_by_client.get_mut(&client_id) {
+                    *keys = descend_keys.clone();
+                }
+                if self.nested_via_client_id == Some(client_id)
+                    && self.host_descend_keys != descend_keys
+                {
                     self.host_descend_keys = descend_keys;
                     self.update_all_clients_nesting_mode_info();
                 }
@@ -5703,7 +5776,27 @@ impl Screen {
                 self.own_fullscreen_requested = fullscreen;
                 self.update_all_clients_nesting_mode_info();
             },
-            NestedSessionMessage::AncestryUpdate { ancestry } => {
+            NestedSessionMessage::AncestryUpdate {
+                ancestry,
+                identity_ancestry,
+            } => {
+                if !self.navigation_guard.is_nested(client_id)
+                    || !self
+                        .navigation_guard
+                        .validate_ancestry(&ancestry, identity_ancestry.as_deref())
+                {
+                    log::warn!("Rejected invalid ancestry update for client {}", client_id);
+                    return;
+                }
+                self.navigation_guard.record_ancestry(
+                    client_id,
+                    ancestry.clone(),
+                    identity_ancestry.clone(),
+                );
+                if self.nested_via_client_id != Some(client_id) {
+                    self.broadcast_ancestry_update_to_guests();
+                    return;
+                }
                 self.nested_ancestry = ancestry;
                 self.update_all_clients_nesting_mode_info();
                 self.broadcast_ancestry_update_to_guests();
@@ -6318,6 +6411,7 @@ impl Screen {
         client_id: ClientId,
         host_terminal_env: BTreeMap<String, String>,
     ) {
+        self.configure_nesting_client(client_id, &host_terminal_env);
         self.client_notification_protocols.insert(
             client_id,
             NotificationProtocol::resolve(self.host_notification_protocol, &host_terminal_env),
@@ -6844,6 +6938,9 @@ impl Screen {
     }
 
     pub fn add_client(&mut self, client_id: ClientId, is_web_client: bool) -> Result<()> {
+        self.navigation_guard.add_client(client_id);
+        self.broadcast_ancestry_update_to_guests();
+        self.announce_server_identity(client_id);
         let err_context = |tab_index| {
             format!("failed to attach client {client_id} to tab with index {tab_index}")
         };
@@ -7070,7 +7167,10 @@ impl Screen {
         self.last_forwarded_osc7.remove(&client_id);
         self.client_host_focused.remove(&client_id);
         self.client_notification_protocols.remove(&client_id);
+        self.navigation_guard.remove_client(client_id);
+        self.host_controls_by_client.remove(&client_id);
         self.client_host_terminal_env.remove(&client_id);
+        self.broadcast_ancestry_update_to_guests();
         self.revert_fit_disabled_without_reference_client()
             .with_context(err_context)?;
         if let Some(prev_tab_id) = previously_active_tab_id {
@@ -7088,8 +7188,16 @@ impl Screen {
             self.last_reported_upward = None;
             self.nested_via_client_id = None;
             self.nested_ancestry = vec![];
-            self.host_descended = false;
             self.host_descend_keys = vec![];
+            if let Some((client, names, _)) = self.navigation_guard.remaining_context() {
+                self.nested_via_client_id = Some(client);
+                self.nested_ancestry = names;
+                if let Some((capabilities, keys)) = self.host_controls_by_client.get(&client) {
+                    self.host_capabilities = capabilities.clone();
+                    self.host_descend_keys = keys.clone();
+                }
+            }
+            self.host_descended = false;
             self.update_all_clients_nesting_mode_info();
             self.broadcast_ancestry_update_to_guests();
         }
@@ -8359,7 +8467,9 @@ impl Screen {
                     ServerToClientMsg::RenamedSession { name: name.clone() },
                 );
             }
+            self.announce_server_identity(client_id);
         }
+        self.broadcast_ancestry_update_to_guests();
         Ok(Ok(()))
     }
 
@@ -10865,6 +10975,8 @@ pub(crate) fn screen_thread_main(
     default_keybinds: SharedKeybinds,
     session_id: String,
     live_view_captures: crate::pane_mirror::SharedLiveViewCaptures,
+    server_instance_id: String,
+    initial_host_terminal_env: BTreeMap<String, String>,
 ) -> Result<()> {
     // Resolve `theme_dark` / `theme_light` to concrete `Styling` from the
     // bundled themes BEFORE `config.options` is moved out below. These
@@ -11024,6 +11136,11 @@ pub(crate) fn screen_thread_main(
         nested_session_handling,
         session_id,
     );
+    screen.navigation_guard = crate::nested_navigation::NavigationGuard::new(server_instance_id);
+    screen.navigation_guard.add_client(initial_client_id);
+    screen.configure_nesting_client(initial_client_id, &initial_host_terminal_env);
+    screen.announce_server_identity(initial_client_id);
+
     screen.default_keybinds = default_keybinds;
     screen.live_views.borrow_mut().captures = live_view_captures;
     screen.default_context_menu_config = config.context_menu.clone();
@@ -15593,6 +15710,38 @@ pub(crate) fn screen_thread_main(
                 let preview = screen.session_preview(tab_index, pane_id, anchor);
                 let _ = response_channel.send(preview);
             },
+            ScreenInstruction::SettleClientNesting(client_id) => {
+                screen
+                    .navigation_guard
+                    .settle_ordinary(client_id, Instant::now());
+                screen.broadcast_ancestry_update_to_guests();
+            },
+            ScreenInstruction::ConfirmSessionSwitch(source, token) => {
+                if !pending_tab_ids.is_empty() {
+                    pending_events_waiting_for_tab
+                        .push(ScreenInstruction::ConfirmSessionSwitch(source, token));
+                } else if let Ok(mut link) = zellij_utils::session_link::SessionLink::open(&source)
+                {
+                    let _ = link.send(
+                        zellij_utils::ipc::ClientToServerMsg::SessionSwitchAttached {
+                            source_cleanup_token: token,
+                        },
+                    );
+                }
+            },
+            ScreenInstruction::ValidateSessionSwitch {
+                connect_to_session,
+                client_id,
+                completion_tx,
+                close_current,
+            } => {
+                screen.validate_session_switch(
+                    connect_to_session,
+                    client_id,
+                    completion_tx,
+                    close_current,
+                );
+            },
             ScreenInstruction::GetSessionAttention {
                 include_command_text,
                 response_channel,
@@ -15620,7 +15769,7 @@ pub(crate) fn screen_thread_main(
                 screen.update_client_session_history(client_id, history);
             },
             ScreenInstruction::GoToNextAttention(client_id, mut completion) => {
-                if !screen.go_to_next_attention(client_id) {
+                if !screen.go_to_next_attention(client_id, &mut completion) {
                     completion.as_mut().map(|c| {
                         c.set_error_message("Nothing needs attention".to_owned());
                         c.set_exit_status(2)
@@ -15653,7 +15802,7 @@ pub(crate) fn screen_thread_main(
                 client_id,
                 mut completion,
             } => {
-                if !screen.session_pane_command(session_name, command, client_id) {
+                if !screen.session_pane_command(session_name, command, client_id, &mut completion) {
                     completion.as_mut().map(|c| {
                         c.set_error_message("Pane not found".to_owned());
                         c.set_exit_status(2)

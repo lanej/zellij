@@ -234,6 +234,9 @@ pub enum ClientToServerMsg {
     SoftKeyboardVisibilityChanged {
         visible: bool,
     },
+    SessionSwitchAttached {
+        source_cleanup_token: String,
+    },
     NestedSessionFrameFromHost {
         payload_bytes: Vec<u8>,
     },

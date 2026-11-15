@@ -265,6 +265,7 @@ pub struct TerminalParams {
     pub cell_width: Option<u16>,
     pub cell_height: Option<u16>,
     pub structured: Option<bool>,
+    pub nested: Option<bool>,
 }
 
 #[derive(Deserialize)]

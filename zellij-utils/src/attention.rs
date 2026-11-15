@@ -602,6 +602,8 @@ pub struct TabAttention {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct SessionAttention {
+    #[serde(default)]
+    pub server_instance_id: Option<String>,
     pub status: AttentionStatus,
     pub counts: AttentionCounts,
     pub muted: bool,

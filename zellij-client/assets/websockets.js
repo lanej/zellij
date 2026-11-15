@@ -114,7 +114,7 @@ export function initWebSockets(boot, term, fitAddon) {
         term.resize(fitDimensions.cols, fitDimensions.rows);
     }
     const cell = getCellPixelDimensions(term);
-    let queryString = `?web_client_id=${encodeURIComponent(ownWebClientId)}&rows=${term.rows}&cols=${term.cols}`;
+    let queryString = `?web_client_id=${encodeURIComponent(ownWebClientId)}&rows=${term.rows}&cols=${term.cols}&nested=false`;
     if (cell) {
         const cellWidth = Math.round(cell.width);
         const cellHeight = Math.round(cell.height);

@@ -673,7 +673,7 @@ pub(crate) enum InputInstruction {
 pub async fn run_remote_client_terminal_loop(
     os_input: Box<dyn ClientOsApi>,
     mut connections: remote_attach::WebSocketConnections,
-    nested_session_name: Option<String>,
+    mut nested_session_name: Option<String>,
     host_contacted: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<Option<ConnectToSession>, RemoteClientError> {
     use crate::os_input_output::{AsyncSignals, AsyncStdin};
@@ -709,6 +709,7 @@ pub async fn run_remote_client_terminal_loop(
         log::error!("Failed to send resize message: {}", e);
     }
 
+    let mut nested_server_instance_id = None;
     let mut nested_frame_extractor = nested_session::NestedFrameExtractor::new();
     let mut reannounce_scheduler =
         nested_session::ReannounceScheduler::new(std::time::Instant::now());
@@ -776,6 +777,7 @@ pub async fn run_remote_client_terminal_loop(
                     if reannounce_scheduler.on_tick(std::time::Instant::now()) {
                         let announce = nested_session::NestedSessionMessage::Announce {
                             session_name: session_name.clone(),
+                            server_instance_id: nested_server_instance_id.clone(),
                             capabilities: vec![
                                 nested_session::NestedSessionCapability::NestedControl,
                                 nested_session::NestedSessionCapability::HintReporting,
@@ -885,8 +887,17 @@ pub async fn run_remote_client_terminal_loop(
                                     log::error!("{}", line);
                                 }
                             }
-                            Ok(WebServerToWebClientControlMessage::SwitchedSession{ .. }) => {
-                                // no-op
+                            Ok(WebServerToWebClientControlMessage::EmitNestedSessionFrame { payload_bytes }) => {
+                                if let Some(nested_session::NestedSessionMessage::Announce { session_name, server_instance_id, .. }) = nested_session::decode_payload(&payload_bytes) {
+                                    nested_session_name = Some(session_name);
+                                    nested_server_instance_id = server_instance_id;
+                                }
+                                let mut stdout = os_input.get_stdout_writer();
+                                let _ = stdout.write_all(&nested_session::encode_frame_from_payload(&payload_bytes));
+                                let _ = stdout.flush();
+                            }
+                            Ok(WebServerToWebClientControlMessage::SwitchedSession{ new_session_name }) => {
+                                nested_session_name = Some(new_session_name);
                             }
                             Ok(WebServerToWebClientControlMessage::SetSoftKeyboard{ .. }) => {
                                 // no-op
@@ -935,6 +946,7 @@ pub fn start_remote_client(
     insecure: bool,
     async_worker_tasks: Option<usize>,
 ) -> Result<Option<ConnectToSession>, RemoteClientError> {
+    let attachment_env = attachment_environment();
     info!("Starting Zellij client!");
 
     let remote_session_name = remote_session_url
@@ -954,7 +966,10 @@ pub fn start_remote_client(
         forget,
         ca_cert.as_deref(),
         insecure,
-        remote_attach::ClientDeclaration::default(),
+        remote_attach::ClientDeclaration {
+            nested: Some(nested_session::expects_nested_attachment(&attachment_env)),
+            ..Default::default()
+        },
         remote_attach::Prompting::Interactive,
     )?;
 
@@ -983,6 +998,7 @@ pub fn start_remote_client(
     stdout.write_all(ENABLE_FOCUS_REPORTING.as_bytes()).unwrap();
     let announce = nested_session::NestedSessionMessage::Announce {
         session_name: remote_session_name.clone(),
+        server_instance_id: None,
         capabilities: vec![
             nested_session::NestedSessionCapability::NestedControl,
             nested_session::NestedSessionCapability::HintReporting,
@@ -1071,12 +1087,16 @@ pub fn first_message(
     cli_args: &CliArgs,
     config_options: &Options,
     terminal_window_size: Size,
-    host_terminal_env: std::collections::BTreeMap<String, String>,
+    mut host_terminal_env: std::collections::BTreeMap<String, String>,
     tab_position_to_focus: Option<usize>,
     pane_id_to_focus: Option<(u32, bool)>,
     switch_context: Option<zellij_utils::session_history::SwitchContext>,
 ) -> Handshake {
     let is_web_client = false;
+    host_terminal_env.insert(
+        nested_session::VERIFIED_SWITCH_CAPABILITY.into(),
+        "1".into(),
+    );
     let layout_from_cli_args = |config_options: &Options| {
         if let Some(layout_string) = &cli_args.layout_string {
             Some(LayoutInfo::Stringified(layout_string.clone()))
@@ -1181,6 +1201,19 @@ pub fn first_message(
     }
 }
 
+fn attachment_environment() -> std::collections::BTreeMap<String, String> {
+    let mut env = host_terminal_env();
+    let marker = if nested_session::expects_nested_attachment(&env) {
+        "1"
+    } else {
+        "0"
+    };
+    // Preserve the original terminal classification across reconnects, before set_zellij mutates it.
+    std::env::set_var(nested_session::EXPECT_NESTED_ENV, marker);
+    env.insert(nested_session::EXPECT_NESTED_ENV.into(), marker.into());
+    env
+}
+
 pub(crate) fn says_goodbye_to_host(host_contacted: bool, switching_sessions: bool) -> bool {
     host_contacted && !switching_sessions
 }
@@ -1201,6 +1234,7 @@ pub fn start_client(
         start_server_detached(os_input, cli_args, config, config_options, info);
         return None;
     }
+    let attachment_env = attachment_environment();
     info!("Starting Zellij client!");
 
     let reminders = zellij_utils::desktop_integration::ReminderContext {
@@ -1279,7 +1313,7 @@ pub fn start_client(
         &cli_args,
         &config_options,
         full_screen_ws,
-        host_terminal_env(),
+        attachment_env,
         tab_position_to_focus,
         pane_id_to_focus,
         switch_context,
@@ -1318,6 +1352,7 @@ pub fn start_client(
     stdout.write_all(ENABLE_FOCUS_REPORTING.as_bytes()).unwrap();
     let announce = nested_session::NestedSessionMessage::Announce {
         session_name: own_session_name.clone(),
+        server_instance_id: None,
         capabilities: vec![
             nested_session::NestedSessionCapability::NestedControl,
             nested_session::NestedSessionCapability::HintReporting,
@@ -1741,7 +1776,18 @@ pub fn start_client(
                 );
             },
             ClientInstruction::EmitNestedSessionFrame(payload_bytes) => {
-                if nested_reannounce.host_contacted() {
+                let is_announce = if let Some(nested_session::NestedSessionMessage::Announce {
+                    session_name,
+                    server_instance_id,
+                    ..
+                }) = nested_session::decode_payload(&payload_bytes)
+                {
+                    nested_reannounce.set_identity(session_name, server_instance_id);
+                    true
+                } else {
+                    false
+                };
+                if is_announce || nested_reannounce.host_contacted() {
                     let frame = nested_session::encode_frame_from_payload(&payload_bytes);
                     let mut out = os_input.get_stdout_writer();
                     let _ = out.write_all(&frame);
@@ -1842,6 +1888,7 @@ pub fn start_server_detached(
     config_options: Options,
     info: ClientInfo,
 ) {
+    let attachment_env = attachment_environment();
     envs::set_zellij("0".to_string());
     config.env.set_vars();
 
@@ -1867,7 +1914,7 @@ pub fn start_server_detached(
                 max_panes: cli_args.max_panes,
                 force_run_layout_commands: force_run_commands,
                 cwd,
-                host_terminal_env: host_terminal_env(),
+                host_terminal_env: attachment_env.clone(),
                 initial_panes: None,
                 switch_context: None,
             };
@@ -1927,7 +1974,7 @@ pub fn start_server_detached(
                 max_panes: cli_args.max_panes,
                 force_run_layout_commands: false,
                 cwd: layout_cwd,
-                host_terminal_env: host_terminal_env(),
+                host_terminal_env: attachment_env.clone(),
                 initial_panes,
                 switch_context: None,
             };

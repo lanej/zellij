@@ -344,6 +344,7 @@ impl TryFrom<ProtoAttentionItem> for AttentionItem {
 impl From<SessionAttention> for ProtoSessionAttention {
     fn from(attention: SessionAttention) -> Self {
         ProtoSessionAttention {
+            server_instance_id: attention.server_instance_id,
             status: attention_status_to_proto(attention.status),
             counts: Some(attention.counts.into()),
             muted: attention.muted,
@@ -357,6 +358,7 @@ impl TryFrom<ProtoSessionAttention> for SessionAttention {
     type Error = anyhow::Error;
     fn try_from(attention: ProtoSessionAttention) -> Result<Self> {
         Ok(SessionAttention {
+            server_instance_id: attention.server_instance_id,
             status: attention_status_from_proto(attention.status)?,
             counts: attention.counts.map(|c| c.into()).unwrap_or_default(),
             muted: attention.muted,
@@ -435,6 +437,8 @@ impl TryFrom<ProtoSessionArrival> for SessionArrival {
 impl From<SwitchContext> for ProtoSwitchContext {
     fn from(context: SwitchContext) -> Self {
         ProtoSwitchContext {
+            expected_server_instance_id: context.expected_server_instance_id,
+            source_cleanup_token: context.source_cleanup_token,
             history: Some(context.history.into()),
             arrival: context.arrival.map(|a| a.into()),
             from_session: context.from_session,
@@ -448,6 +452,8 @@ impl TryFrom<ProtoSwitchContext> for SwitchContext {
     type Error = anyhow::Error;
     fn try_from(context: ProtoSwitchContext) -> Result<Self> {
         Ok(SwitchContext {
+            expected_server_instance_id: context.expected_server_instance_id,
+            source_cleanup_token: context.source_cleanup_token,
             history: context.history.map(|h| h.into()).unwrap_or_default(),
             arrival: context.arrival.map(|a| a.try_into()).transpose()?,
             from_session: context.from_session,

@@ -583,6 +583,25 @@ impl PaneFrame {
         title_chars.extend(marker_chars);
         Some((title_chars, title_width + marker_width))
     }
+    fn inactive_title_color(&self) -> Option<PaletteColor> {
+        self.style.colors.frame_unselected.map(|frame| {
+            if frame.base == frame.background {
+                self.style.colors.text_unselected.base
+            } else {
+                frame.base
+            }
+        })
+    }
+    fn title_color(&self) -> Option<PaletteColor> {
+        if !self.is_main_client
+            && self.color_override.is_none()
+            && self.color == self.style.colors.frame_unselected.map(|frame| frame.base)
+        {
+            self.inactive_title_color()
+        } else {
+            self.color
+        }
+    }
     fn render_text_left_side(
         &self,
         title: &str,
@@ -595,7 +614,7 @@ impl PaneFrame {
             None
         } else if graphemes::display_width(&full_text) <= max_length {
             Some((
-                foreground_color(&full_text, self.color),
+                foreground_color(&full_text, self.title_color()),
                 graphemes::display_width(&full_text),
             ))
         } else {
@@ -623,7 +642,10 @@ impl PaneFrame {
                     first_part_width + middle_truncated_sign.width() + second_part_width,
                 )
             };
-            Some((foreground_color(&title_left_side, self.color), title_length))
+            Some((
+                foreground_color(&title_left_side, self.title_color()),
+                title_length,
+            ))
         }
     }
     fn three_part_title_line(
@@ -874,9 +896,9 @@ impl PaneFrame {
         };
         let label_cols = usable_cols - 2 * padding;
         let content = graphemes::truncate_end(&entry.label, label_cols, "…").into_owned();
-        let unfocused_color = self.style.colors.frame_unselected.map(|frame| frame.base);
+        let unfocused_color = self.inactive_title_color();
         let (color, bold) = if entry.is_selected || entry.is_emphasized {
-            (self.color, true)
+            (self.title_color(), true)
         } else {
             (unfocused_color, entry.stack_is_focused)
         };
@@ -915,7 +937,7 @@ impl PaneFrame {
             };
             let label = graphemes::truncate_end(&entry.label, usable_cols - marker.len(), "…");
             let text = format!("{}{}", marker, label);
-            let mut line = foreground_color(&text, self.color);
+            let mut line = foreground_color(&text, self.title_color());
             line.extend(
                 std::iter::repeat(EMPTY_TERMINAL_CHARACTER)
                     .take(usable_cols - graphemes::display_width(&text)),
@@ -941,10 +963,10 @@ impl PaneFrame {
         for _ in focus_length..left_budget {
             line.push(EMPTY_TERMINAL_CHARACTER);
         }
-        let unfocused_color = self.style.colors.frame_unselected.map(|frame| frame.base);
+        let unfocused_color = self.inactive_title_color();
         let style_entry_text = |text: &str| {
             if entry.is_selected || entry.is_emphasized {
-                foreground_color(text, self.color)
+                foreground_color(text, self.title_color())
             } else if entry.stack_is_focused {
                 foreground_color(text, unfocused_color)
             } else {
@@ -1030,7 +1052,7 @@ impl PaneFrame {
     fn plain_title_part(&self, content: &str) -> (Vec<TerminalCharacter>, usize) {
         let text = format!(" {} ", content);
         (
-            foreground_color(&text, self.color),
+            foreground_color(&text, self.title_color()),
             graphemes::display_width(&text),
         )
     }
@@ -1683,6 +1705,114 @@ mod tests {
         row.iter()
             .flat_map(|c| c.terminal_characters.iter().cloned())
             .collect()
+    }
+
+    #[test]
+    fn dotfiles_inactive_titles_stay_visible_with_background_colored_borders() {
+        let background = PaletteColor::Rgb((46, 52, 64));
+        let text = PaletteColor::Rgb((216, 222, 233));
+        let focus = PaletteColor::Rgb((180, 142, 173));
+        for (title, cols) in [
+            ("Readable title", 40),
+            ("A title that needs truncation", 20),
+        ] {
+            for focused in [false, true] {
+                let mut frame = title_frame(title, cols, true);
+                let mut inactive = frame.style.colors.frame_selected;
+                inactive.base = background;
+                inactive.background = background;
+                frame.style.colors.frame_unselected = Some(inactive);
+                frame.style.colors.text_unselected.base = text;
+                frame.is_main_client = focused;
+                frame.color = Some(if focused { focus } else { background });
+                let cells = first_row(&frame);
+                let row = characters_to_string(&cells);
+                assert!(
+                    row.contains(if cols == 40 { "Readable title" } else { "A" }),
+                    "{row}"
+                );
+                let expected_title = Some(AnsiCode::from(if focused { focus } else { text }));
+                let expected_border =
+                    Some(AnsiCode::from(if focused { focus } else { background }));
+                for cell in &cells {
+                    if matches!(cell.character, '─' | '┌' | '┐' | '╭' | '╮') {
+                        assert_eq!(cell.styles.foreground, expected_border);
+                    } else if !cell.text().trim().is_empty() {
+                        assert_eq!(cell.styles.foreground, expected_title);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dotfiles_inactive_title_colors_preserve_visible_frames_and_overrides() {
+        let background = PaletteColor::Rgb((46, 52, 64));
+        let visible_frame = PaletteColor::Rgb((151, 157, 169));
+        let override_color = PaletteColor::Rgb((235, 203, 139));
+        for (border, override_frame) in [(visible_frame, false), (background, true)] {
+            let mut frame = title_frame("Pane title", 40, true);
+            let mut inactive = frame.style.colors.frame_selected;
+            inactive.base = border;
+            inactive.background = background;
+            frame.style.colors.frame_unselected = Some(inactive);
+            frame.is_main_client = false;
+            frame.color = Some(border);
+            if override_frame {
+                frame.override_color(override_color);
+            }
+            let expected = Some(AnsiCode::from(if override_frame {
+                override_color
+            } else {
+                border
+            }));
+            for cell in first_row(&frame) {
+                if !cell.text().trim().is_empty() {
+                    assert_eq!(cell.styles.foreground, expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dotfiles_inactive_title_colors_keep_stack_labels_readable() {
+        let background = PaletteColor::Rgb((46, 52, 64));
+        let text = PaletteColor::Rgb((216, 222, 233));
+        for in_row in [false, true] {
+            for cols in [3, 40] {
+                for selected in [false, true] {
+                    let mut frame = title_frame("vim", cols, true);
+                    let mut inactive = frame.style.colors.frame_selected;
+                    inactive.base = background;
+                    inactive.background = background;
+                    frame.style.colors.frame_unselected = Some(inactive);
+                    frame.style.colors.text_unselected.base = text;
+                    frame.is_main_client = false;
+                    frame.color = Some(background);
+                    frame.stack_list_entry = Some(StackListEntry {
+                        width: 3,
+                        label: "vim".to_owned(),
+                        is_selected: selected,
+                        is_emphasized: false,
+                        stack_is_focused: false,
+                        is_in_row: in_row,
+                    });
+                    let cells = first_row(&frame);
+                    let label_cells: Vec<_> = cells
+                        .iter()
+                        .filter(|cell| matches!(cell.character, 'v' | 'i' | 'm' | '…'))
+                        .collect();
+                    assert!(
+                        !label_cells.is_empty(),
+                        "{:?}",
+                        characters_to_string(&cells)
+                    );
+                    for cell in label_cells {
+                        assert_eq!(cell.styles.foreground, Some(AnsiCode::from(text)));
+                    }
+                }
+            }
+        }
     }
 
     #[test]

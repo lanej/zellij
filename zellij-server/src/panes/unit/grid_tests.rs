@@ -6743,6 +6743,7 @@ fn new_grid_for_nested_frames() -> Grid {
 fn nested_announce_message() -> zellij_utils::nested_session::NestedSessionMessage {
     zellij_utils::nested_session::NestedSessionMessage::Announce {
         session_name: "guest-session".to_owned(),
+        server_instance_id: None,
         capabilities: vec![zellij_utils::nested_session::NestedSessionCapability::NestedControl],
     }
 }

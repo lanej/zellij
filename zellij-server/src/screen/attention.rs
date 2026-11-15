@@ -312,7 +312,9 @@ impl Screen {
                 (tab.id, tab.name.clone(), panes)
             })
             .collect();
-        self.attention.session_attention(&tabs)
+        let mut attention = self.attention.session_attention(&tabs);
+        attention.server_instance_id = Some(self.navigation_guard.instance_id.clone());
+        attention
     }
 
     pub(super) fn report_session_attention(&mut self) {
@@ -452,6 +454,7 @@ impl Screen {
         client_id: ClientId,
         session: &str,
         pane_id: zellij_utils::data::PaneId,
+        completion: &mut Option<NotificationEnd>,
     ) -> bool {
         if self.is_this_session(Some(session)) {
             return self
@@ -476,12 +479,16 @@ impl Screen {
             .send_to_server(ServerInstruction::SwitchSession(
                 connect_to_session,
                 client_id,
-                None,
+                completion.take(),
             ))
             .is_ok()
     }
 
-    pub(crate) fn go_to_next_attention(&mut self, client_id: ClientId) -> bool {
+    pub(crate) fn go_to_next_attention(
+        &mut self,
+        client_id: ClientId,
+        completion: &mut Option<NotificationEnd>,
+    ) -> bool {
         let global = self.fresh_global_attention();
         let focused: Option<zellij_utils::data::PaneId> = self
             .get_active_tab(client_id)
@@ -494,7 +501,7 @@ impl Screen {
         else {
             return false;
         };
-        self.go_to_session_pane(client_id, &next.session, next.item.pane_id)
+        self.go_to_session_pane(client_id, &next.session, next.item.pane_id, completion)
     }
 
     pub(crate) fn mark_pane_seen(
@@ -596,6 +603,7 @@ impl Screen {
         session_name: Option<String>,
         command: SessionPaneCommand,
         client_id: ClientId,
+        completion: &mut Option<NotificationEnd>,
     ) -> bool {
         if self.is_this_session(session_name.as_deref()) {
             let handled = match command {
@@ -623,7 +631,7 @@ impl Screen {
                 },
                 SessionPaneCommand::Focus(pane_id) => {
                     let own = self.session_name.clone();
-                    self.go_to_session_pane(client_id, &own, pane_id)
+                    self.go_to_session_pane(client_id, &own, pane_id, completion)
                 },
             };
             let _ = self.log_and_report_session_state();
@@ -648,7 +656,7 @@ impl Screen {
             },
             SessionPaneCommand::ToggleWatch(pane_id) => Action::WatchPaneByPaneId { pane_id },
             SessionPaneCommand::Focus(pane_id) => {
-                return self.go_to_session_pane(client_id, &session_name, pane_id);
+                return self.go_to_session_pane(client_id, &session_name, pane_id, completion);
             },
         };
         self.remote_actions.send(&session_name, vec![action]);

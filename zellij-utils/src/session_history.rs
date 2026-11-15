@@ -40,6 +40,10 @@ impl From<HistoryMove> for SessionArrival {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct SwitchContext {
+    #[serde(default)]
+    pub expected_server_instance_id: Option<String>,
+    #[serde(default)]
+    pub source_cleanup_token: Option<String>,
     pub history: SessionHistory,
     pub arrival: Option<SessionArrival>,
     pub from_session: Option<String>,
@@ -65,6 +69,8 @@ impl SwitchContext {
         history.record_switch(from, to);
         SwitchContext {
             history,
+            expected_server_instance_id: None,
+            source_cleanup_token: None,
             arrival: Some(arrival),
             from_session: Some(from.to_owned()),
             startup_card: None,

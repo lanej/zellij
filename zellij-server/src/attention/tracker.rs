@@ -1321,6 +1321,7 @@ impl AttentionTracker {
             .find(|i| !i.attention.is_muted() && i.attention.status.is_counted())
             .cloned();
         SessionAttention {
+            server_instance_id: None,
             status: counts.highest_counted(),
             counts,
             muted: self.session_muted,

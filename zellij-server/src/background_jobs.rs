@@ -92,6 +92,7 @@ pub enum BackgroundJob {
     StopFlashPaneBell(Vec<PaneId>),
     FlashTabBell(usize),     // usize = tab_id
     StopFlashTabBell(usize), // usize = tab_id
+    SettleClientNesting(ClientId),
     StartNestedGuestPing(PaneId),
     StopNestedGuestPing(PaneId),
     TrimAllocator,
@@ -148,6 +149,7 @@ impl From<&BackgroundJob> for BackgroundJobContext {
             BackgroundJob::StopFlashPaneBell(..) => BackgroundJobContext::StopFlashPaneBell,
             BackgroundJob::FlashTabBell(..) => BackgroundJobContext::FlashTabBell,
             BackgroundJob::StopFlashTabBell(..) => BackgroundJobContext::StopFlashTabBell,
+            BackgroundJob::SettleClientNesting(..) => BackgroundJobContext::StartNestedGuestPing,
             BackgroundJob::StartNestedGuestPing(..) => BackgroundJobContext::StartNestedGuestPing,
             BackgroundJob::StopNestedGuestPing(..) => BackgroundJobContext::StopNestedGuestPing,
             BackgroundJob::TrimAllocator => BackgroundJobContext::TrimAllocator,
@@ -1002,6 +1004,14 @@ pub(crate) fn background_jobs_main(
                 let _ = bus
                     .senders
                     .send_to_screen(ScreenInstruction::SetTabBellFlash(tab_id, false));
+            },
+            BackgroundJob::SettleClientNesting(client_id) => {
+                let senders = bus.senders.clone();
+                runtime.spawn(async move {
+                    tokio::time::sleep(crate::nested_navigation::DISCOVERY_GRACE).await;
+                    let _ =
+                        senders.send_to_screen(ScreenInstruction::SettleClientNesting(client_id));
+                });
             },
             BackgroundJob::StartNestedGuestPing(pane_id) => {
                 if !nested_guest_pings.contains_key(&pane_id) {
