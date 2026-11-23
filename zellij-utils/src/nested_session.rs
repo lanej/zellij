@@ -145,6 +145,9 @@ pub enum NestedSessionMessage {
         capabilities: Vec<NestedSessionCapability>,
         descend_keys: Vec<KeyWithModifier>,
     },
+    AnnounceRejected {
+        reason: String,
+    },
     FocusGained {
         from_direction: Option<Direction>,
     },
@@ -339,6 +342,9 @@ impl From<NestedSessionMessage> for proto::NestedSessionMessage {
             },
             NestedSessionMessage::Pong => Payload::Pong(proto::Pong {}),
             NestedSessionMessage::Bye => Payload::Bye(proto::Bye {}),
+            NestedSessionMessage::AnnounceRejected { reason } => {
+                Payload::AnnounceRejected(proto::AnnounceRejected { reason })
+            },
             NestedSessionMessage::AnnounceAck {
                 ancestry,
                 identity_ancestry,
@@ -443,6 +449,11 @@ impl TryFrom<proto::NestedSessionMessage> for NestedSessionMessage {
             },
             Some(Payload::Pong(_)) => Ok(NestedSessionMessage::Pong),
             Some(Payload::Bye(_)) => Ok(NestedSessionMessage::Bye),
+            Some(Payload::AnnounceRejected(rejected)) => {
+                Ok(NestedSessionMessage::AnnounceRejected {
+                    reason: rejected.reason,
+                })
+            },
             Some(Payload::AnnounceAck(announce_ack)) => Ok(NestedSessionMessage::AnnounceAck {
                 ancestry: announce_ack.ancestry,
                 identity_ancestry: announce_ack
@@ -675,6 +686,9 @@ mod tests {
             NestedSessionMessage::ToggleHostFullscreen { fullscreen: true },
             NestedSessionMessage::Pong,
             NestedSessionMessage::Bye,
+            NestedSessionMessage::AnnounceRejected {
+                reason: "Cannot attach a containing session inside itself.".into(),
+            },
             NestedSessionMessage::AnnounceAck {
                 ancestry: vec!["outer".to_owned(), "middle".to_owned()],
                 identity_ancestry: None,

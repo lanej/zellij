@@ -959,3 +959,48 @@ async fn test_nested_announce_ack_is_relayed_over_control_websocket() {
         .expect("Loop didn't exit")
         .unwrap();
 }
+
+#[tokio::test]
+#[serial]
+async fn rejected_nested_attachment_exits_remote_viewer_without_forwarding_input() {
+    use zellij_utils::nested_session::{encode_frame, NestedSessionMessage};
+
+    let (port, server, _server_handle) = mock_ws_server::MockWsServer::start().await;
+    let connections = connect_mock_ws(port).await;
+    let (stdin_tx, stdin_rx) = mpsc::unbounded_channel();
+    let (_signal_tx, signal_rx) = mpsc::unbounded_channel();
+    let os_input = Box::new(TestClientOsApi::new(stdin_rx, signal_rx));
+    let reason = "Cannot attach a containing session inside itself.";
+    let mut input = encode_frame(&NestedSessionMessage::AnnounceRejected {
+        reason: reason.into(),
+    });
+    input.extend_from_slice(b"must not reach the session");
+    stdin_tx.send(input).unwrap();
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        run_remote_client_terminal_loop(
+            os_input,
+            connections,
+            None,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        ),
+    )
+    .await
+    .expect("rejected viewer must exit without EOF");
+    assert!(
+        matches!(result, Err(crate::RemoteClientError::NestedSessionRejected(message)) if message == reason)
+    );
+    while let Ok(message) = server.client_to_control_rx.lock().unwrap().try_recv() {
+        if let Message::Text(text) = message {
+            let control: WebClientToWebServerControlMessage = serde_json::from_str(&text).unwrap();
+            assert!(matches!(
+                control.payload,
+                WebClientToWebServerControlMessagePayload::TerminalResize(_)
+            ));
+        }
+    }
+    while let Ok(message) = server.client_to_terminal_rx.lock().unwrap().try_recv() {
+        assert!(!matches!(message, Message::Binary(_) | Message::Text(_)));
+    }
+}

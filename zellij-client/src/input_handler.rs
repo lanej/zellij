@@ -394,6 +394,12 @@ impl InputHandler {
             self.os_input.note_host_message(message);
         }
         match decoded {
+            Some(NestedSessionMessage::AnnounceRejected { reason }) => {
+                self.nested_reannounce.stop();
+                self.should_exit = true;
+                // Quit is a session action. Only this rejected viewer must exit.
+                self.exit(ExitReason::Error(reason));
+            },
             Some(NestedSessionMessage::Ping) => {
                 self.send_client_instructions
                     .send(ClientInstruction::EmitNestedSessionFrame(

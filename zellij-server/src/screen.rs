@@ -4883,6 +4883,7 @@ impl Screen {
                 "Rejected nested guest in {:?}: maximum ancestry depth",
                 pane_id
             );
+            self.reject_nested_guest(pane_id, "The maximum nested session depth was reached.");
             return;
         }
         if let Some(id) = server_instance_id.as_ref() {
@@ -4892,6 +4893,10 @@ impl Screen {
                 || self.navigation_guard.contains_ancestor(id)
             {
                 log::warn!("Rejected cyclic or invalid nested guest in {:?}", pane_id);
+                self.reject_nested_guest(
+                    pane_id,
+                    "Cannot attach a containing session inside itself or use an invalid session identity.",
+                );
                 return;
             }
             self.guest_instance_ids.insert(pane_id, id.clone());
@@ -4974,6 +4979,26 @@ impl Screen {
             guest_session_name,
             pane_id
         );
+    }
+
+    fn reject_nested_guest(&mut self, pane_id: PaneId, reason: &str) {
+        // An initial announcement can precede the server identity. Undo its
+        // guest state before asking the viewer to exit, without closing its pane
+        // or terminating the session that other clients may still be using.
+        self.clear_nested_guest(pane_id);
+        if let PaneId::Terminal(terminal_id) = pane_id {
+            let rejection = NestedSessionMessage::AnnounceRejected {
+                reason: reason.to_owned(),
+            };
+            let _ = self
+                .bus
+                .senders
+                .send_to_pty_writer(PtyWriteInstruction::Write(
+                    nested_session::encode_frame(&rejection),
+                    terminal_id,
+                    None,
+                ));
+        }
     }
 
     fn suspend_nested_guest(&mut self, pane_id: PaneId) {
@@ -5344,6 +5369,7 @@ impl Screen {
         for tab in self.tabs.values_mut() {
             if tab.has_pane_with_pid(&pane_id) {
                 tab.set_pane_is_nested_guest(pane_id, false);
+                tab.set_guest_session_name_on_pane(pane_id, None);
                 tab.clear_all_guest_modals_on_pane(pane_id);
                 tab.clear_all_guest_choice_indicators_on_pane(pane_id);
                 break;

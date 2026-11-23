@@ -18,6 +18,7 @@ message NestedSessionMessage {
     GuestModeUpdate guest_mode_update = 15;
     RequestGuestKeybinds request_guest_keybinds = 16;
     GuestKeybindsReply guest_keybinds_reply = 18;
+    AnnounceRejected announce_rejected = 19;
   }
   reserved 17;
 }
@@ -66,6 +67,11 @@ message AnnounceAck {
   repeated NestedCapability capabilities = 2;
   repeated string descend_keys = 3;
   optional IdentityAncestry identity_ancestry = 4;
+}
+
+// Reject this viewer only; the destination session and its other clients remain.
+message AnnounceRejected {
+  string reason = 1;
 }
 
 message ShortcutUpdate {

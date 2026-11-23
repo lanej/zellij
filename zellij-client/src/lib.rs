@@ -147,6 +147,7 @@ pub enum RemoteClientError {
     SessionTokenExpired,
     Unauthorized,
     ConnectionFailed(String),
+    NestedSessionRejected(String),
     UrlParseError(url::ParseError),
     IoError(std::io::Error),
     Other(Box<dyn std::error::Error + Send + Sync>),
@@ -159,6 +160,7 @@ impl std::fmt::Display for RemoteClientError {
             RemoteClientError::SessionTokenExpired => write!(f, "Session token expired"),
             RemoteClientError::Unauthorized => write!(f, "Unauthorized"),
             RemoteClientError::ConnectionFailed(msg) => write!(f, "Connection failed: {}", msg),
+            RemoteClientError::NestedSessionRejected(reason) => write!(f, "{}", reason),
             RemoteClientError::UrlParseError(e) => write!(f, "Invalid URL: {}", e),
             RemoteClientError::IoError(e) => write!(f, "IO error: {}", e),
             RemoteClientError::Other(e) => write!(f, "{}", e),
@@ -729,6 +731,10 @@ pub async fn run_remote_client_terminal_loop(
                             reannounce_scheduler.note_host_contact(std::time::Instant::now());
                             host_contacted.store(true, std::sync::atomic::Ordering::Relaxed);
                             match nested_session::decode_payload(&payload_bytes) {
+                                Some(nested_session::NestedSessionMessage::AnnounceRejected { reason }) => {
+                                    // Dropping these connections detaches only this viewer.
+                                    return Err(RemoteClientError::NestedSessionRejected(reason));
+                                },
                                 Some(nested_session::NestedSessionMessage::Ping) => {
                                     let mut stdout = os_input.get_stdout_writer();
                                     let _ = stdout.write_all(&nested_session::encode_frame(
@@ -1044,12 +1050,18 @@ pub fn start_remote_client(
         std::process::exit(exit_status);
     };
 
-    runtime.block_on(run_remote_client_terminal_loop(
+    let terminal_result = runtime.block_on(run_remote_client_terminal_loop(
         os_input.clone(),
         connections,
         Some(remote_session_name.clone()),
         host_contacted.clone(),
-    ))?;
+    ));
+    if let Err(error) = terminal_result {
+        if matches!(&error, RemoteClientError::NestedSessionRejected(_)) {
+            reset_controlling_terminal_state(error.to_string(), 1);
+        }
+        return Err(error);
+    }
 
     if says_goodbye_to_host(
         host_contacted.load(std::sync::atomic::Ordering::Relaxed),

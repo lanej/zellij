@@ -2,7 +2,7 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NestedSessionMessage {
-    #[prost(oneof="nested_session_message::Payload", tags="1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18")]
+    #[prost(oneof="nested_session_message::Payload", tags="1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19")]
     pub payload: ::core::option::Option<nested_session_message::Payload>,
 }
 /// Nested message and enum types in `NestedSessionMessage`.
@@ -40,6 +40,8 @@ pub mod nested_session_message {
         RequestGuestKeybinds(super::RequestGuestKeybinds),
         #[prost(message, tag="18")]
         GuestKeybindsReply(super::GuestKeybindsReply),
+        #[prost(message, tag="19")]
+        AnnounceRejected(super::AnnounceRejected),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -89,6 +91,13 @@ pub struct AnnounceAck {
     pub descend_keys: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(message, optional, tag="4")]
     pub identity_ancestry: ::core::option::Option<IdentityAncestry>,
+}
+/// Reject this viewer only; the destination session and its other clients remain.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AnnounceRejected {
+    #[prost(string, tag="1")]
+    pub reason: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
