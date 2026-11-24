@@ -2702,6 +2702,17 @@ impl Screen {
             .ok()
             .and_then(|tab| tab.copy_mode_session_id(client_id));
         let Some(capture) = self.copy_key_captures.get_mut(&client_id) else {
+            // rationale: Search text owns keys such as Hop's s and pane-navigation Ctrl-h.
+            if self
+                .get_active_tab_mut(client_id)
+                .ok()
+                .is_some_and(|tab| tab.copy_mode_search_active(client_id))
+            {
+                self.get_active_tab_mut(client_id)?
+                    .copy_mode_input(key, client_id)?;
+                self.render(None)?;
+                return Ok(true);
+            }
             return Ok(false);
         };
         if token != Some(capture.session_id) {

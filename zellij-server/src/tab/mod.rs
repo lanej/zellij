@@ -670,6 +670,9 @@ pub trait Pane {
         Err("Pane does not support native copy".into())
     }
     fn clear_copy_mode_labels(&mut self, _plugin_id: PluginId, _client_id: ClientId) {}
+    fn copy_mode_search_active(&self, _client_id: ClientId) -> bool {
+        false
+    }
     fn copy_mode_session_id(&self, _client_id: ClientId) -> Option<u64> {
         None
     }
@@ -7749,6 +7752,11 @@ impl Tab {
         self.get_active_pane_or_floating_pane_mut(client_id)
             .ok_or("No active pane")?
             .copy_mode_plugin(request, client_id, plugin_id)
+    }
+
+    pub fn copy_mode_search_active(&mut self, client_id: ClientId) -> bool {
+        self.get_active_pane_or_floating_pane_mut(client_id)
+            .is_some_and(|pane| pane.copy_mode_search_active(client_id))
     }
 
     pub fn copy_mode_session_id(&mut self, client_id: ClientId) -> Option<u64> {

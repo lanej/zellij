@@ -27,11 +27,19 @@ keybinds {
 | `Ctrl-u/d`, `Ctrl-b/f`, Page Up/Down | Move by half or full pages |
 | `v`, Space | Toggle character selection, including the cursor character |
 | `V` | Toggle whole logical-line selection, including soft-wrapped continuations |
+| `/`, `?` | Enter a forward or backward search query |
+| `n`, `N` | Repeat the last search or reverse its direction |
 | `y` | Copy the selection and return to the configured base mode |
 | Escape | Cancel the selection; press again to leave copy mode |
 | `q`, Enter, Ctrl-c | Leave copy mode |
 
 The pane frame shows `COPY`, `VISUAL`, or `VISUAL LINE`, the current retained display-row number, and a pending count. Character movement and selection follow whole terminal graphemes, including wide characters. Copied text has no ANSI styling and rejoins soft-wrapped rows. Line selection appends a newline. Clipboard output follows existing Zellij configuration; an OSC 52 request does not establish that the host terminal accepted it.
+
+## Search within copy mode
+
+Press `/` to search forward or `?` to search backward, type a query, and press Enter to move the copy cursor to the next match. The frame displays the query while entering it. Search is literal and case-sensitive across all retained scrollback, including soft-wrapped continuations; it wraps at either end. Matches begin at native grapheme boundaries. An active character or line selection keeps its anchor and extends to the result.
+
+Use `n` to repeat in the original direction and `N` to search in the opposite direction. Counts apply to search motions, for example `3n` or `2/query` followed by Enter. Enter on an empty query reuses the previous query. Backspace or Ctrl-h deletes the last Unicode scalar, and Ctrl-u clears the query. Queries are limited to 4096 bytes. Escape or Ctrl-c cancels query entry without moving the cursor or canceling a selection. A missing pattern leaves the cursor in place and shows `Not found` in the frame. Query keys take precedence over copy-mode shortcuts, so letters bound to plugins are still searchable. After query entry ends, normal copy bindings resume.
 
 ## Native boundary and lifecycle
 
@@ -41,7 +49,7 @@ The terminal grid owns `Option<CopyMode>`, containing the owner client, an immut
 
 One client owns copy mode per pane, matching the shared native pane viewport. Another client cannot replace the owner, yank its selection, or move the shared viewport underneath it. New PTY output uses the existing bounded scrollback-input queue while copying, including at the live bottom. Leaving the mode or disconnecting the owner releases queued output. A geometry change invalidates the snapshot and selection rather than applying old coordinates to reflowed text. The existing output-queue safety cap can also cancel the snapshot; the next copy-mode key exits without copying stale text.
 
-The new mode does not yet implement search input, rectangular selection, marks, or Vim text objects. Existing native search remains available before entering copy mode.
+Copy mode does not implement regular-expression search, rectangular selection, marks, or Vim text objects. Existing native Search mode remains available separately.
 
 ## Plugin controls
 

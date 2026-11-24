@@ -11810,3 +11810,79 @@ fn copy_plugin_moves_selection_using_native_unicode_cells_and_rejects_stale_sess
         )
         .is_err());
 }
+
+#[test]
+fn keyboard_copy_search_directions_counts_wrap_and_selection() {
+    let mut grid = create_grid_with_size_and_raw(3, 40, b"alpha beta beta gamma");
+    assert!(grid.start_copy_mode(1));
+    keyboard_copy_keys(&mut grid, &["g", "g", "/", "b", "e", "t", "a", "ENTER"]);
+    assert_eq!(grid.copy_mode_cursor(Some(1)), Some((6, 0, true)));
+    keyboard_copy_keys(&mut grid, &["n"]);
+    assert_eq!(grid.copy_mode_cursor(Some(1)), Some((11, 0, true)));
+    keyboard_copy_keys(&mut grid, &["n"]);
+    assert_eq!(grid.copy_mode_cursor(Some(1)), Some((6, 0, true)));
+    keyboard_copy_keys(&mut grid, &["N"]);
+    assert_eq!(grid.copy_mode_cursor(Some(1)), Some((11, 0, true)));
+    keyboard_copy_keys(&mut grid, &["?", "a", "l", "p", "h", "a", "ENTER"]);
+    assert_eq!(grid.copy_mode_cursor(Some(1)), Some((0, 0, true)));
+    assert_eq!(
+        keyboard_copy_keys(
+            &mut grid,
+            &["v", "2", "/", "b", "e", "t", "a", "ENTER", "e", "y"]
+        )
+        .as_deref(),
+        Some("alpha beta beta")
+    );
+}
+
+#[test]
+fn keyboard_copy_search_cancel_edit_missing_and_literal_text() {
+    let mut grid = create_grid_with_size_and_raw(3, 40, b"alpha a.b beta");
+    assert!(grid.start_copy_mode(1));
+    keyboard_copy_keys(&mut grid, &["g", "g", "v", "/", "q", "y", "ESC"]);
+    assert_eq!(grid.copy_mode_cursor(Some(1)), Some((0, 0, true)));
+    assert!(!grid.selection.is_empty());
+    keyboard_copy_keys(&mut grid, &["/", "a", ".", "x", "BACKSPACE", "b", "ENTER"]);
+    assert_eq!(grid.copy_mode_cursor(Some(1)), Some((6, 0, true)));
+    keyboard_copy_keys(&mut grid, &["/", "z", "ENTER"]);
+    assert_eq!(grid.copy_mode_cursor(Some(1)), Some((6, 0, true)));
+    assert!(grid
+        .copy_mode
+        .as_ref()
+        .unwrap()
+        .label()
+        .contains("Not found"));
+    keyboard_copy_keys(
+        &mut grid,
+        &[
+            "/", "x", "Ctrl u", "b", "e", "t", "a", "ENTER", "0", "/", "ENTER",
+        ],
+    );
+    assert_eq!(grid.copy_mode_cursor(Some(1)), Some((10, 0, true)));
+}
+
+#[test]
+fn keyboard_copy_search_crosses_scrollback_and_soft_wraps_with_unicode() {
+    let content = format!(
+        "{}a你e\u{301}z tail\r\n{}",
+        "old\r\n".repeat(30),
+        "new\r\n".repeat(30)
+    );
+    let mut grid = create_grid_with_size_and_raw(3, 5, content.as_bytes());
+    assert!(grid.start_copy_mode(1));
+    keyboard_copy_keys(
+        &mut grid,
+        &["?", "你", "e", "\u{301}", "z", "SPACE", "t", "ENTER"],
+    );
+    assert_eq!(grid.copy_mode_cursor(Some(1)).map(|p| p.0), Some(1));
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["v", "y"]).as_deref(),
+        Some("你")
+    );
+    keyboard_copy_keys(&mut grid, &["ESC", "/", "e", "\u{301}", "ENTER"]);
+    assert_eq!(grid.copy_mode_cursor(Some(1)).map(|p| p.0), Some(3));
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["v", "y"]).as_deref(),
+        Some("e\u{301}")
+    );
+}
