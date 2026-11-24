@@ -1,5 +1,5 @@
 //! Keyboard navigation over a frozen pane, using native rows and selection rendering.
-use super::grapheme_join::unit_column_spans;
+use super::grapheme_join::{is_boundary_at, unit_column_spans};
 use super::grid::{Grid, Row};
 use super::selection::Selection;
 use crate::plugins::PluginId;
@@ -282,7 +282,11 @@ impl CopyMode {
         }
         let mut offsets = text
             .char_indices()
-            .filter(|(offset, _)| text[*offset..].starts_with(query))
+            .filter(|(offset, _)| {
+                text[*offset..].starts_with(query)
+                    && is_boundary_at(&text, *offset)
+                    && is_boundary_at(&text, *offset + query.len())
+            })
             .map(|(offset, _)| offset)
             .peekable();
         let mut matches = vec![];

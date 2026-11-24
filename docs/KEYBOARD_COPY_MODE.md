@@ -37,7 +37,7 @@ The pane frame shows `COPY`, `VISUAL`, or `VISUAL LINE`, the current retained di
 
 ## Search within copy mode
 
-Press `/` to search forward or `?` to search backward, type a query, and press Enter to move the copy cursor to the next match. The frame displays the query while entering it. Search is literal and case-sensitive across all retained scrollback, including soft-wrapped continuations; it wraps at either end. Matches begin at native grapheme boundaries. An active character or line selection keeps its anchor and extends to the result.
+Press `/` to search forward or `?` to search backward, type a query, and press Enter to move the copy cursor to the next match. The frame displays the query while entering it. Search is literal and case-sensitive across all retained scrollback, including soft-wrapped continuations; it wraps at either end. Matches cover complete native graphemes; a query cannot start or end inside a joined emoji or accented character. An active character or line selection keeps its anchor and extends to the result.
 
 Use `n` to repeat in the original direction and `N` to search in the opposite direction. Counts apply to search motions, for example `3n` or `2/query` followed by Enter. Enter on an empty query reuses the previous query. Backspace or Ctrl-h deletes the last Unicode scalar, and Ctrl-u clears the query. Queries are limited to 4096 bytes. Escape or Ctrl-c cancels query entry without moving the cursor or canceling a selection. A missing pattern leaves the cursor in place and shows `Not found` in the frame. Query keys take precedence over copy-mode shortcuts, so letters bound to plugins are still searchable. After query entry ends, normal copy bindings resume.
 

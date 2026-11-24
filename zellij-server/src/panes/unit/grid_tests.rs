@@ -11886,3 +11886,56 @@ fn keyboard_copy_search_crosses_scrollback_and_soft_wraps_with_unicode() {
         Some("e\u{301}")
     );
 }
+
+#[test]
+fn keyboard_copy_search_requires_complete_native_graphemes() {
+    fn search(grid: &mut Grid, direction: &str, query: &str) {
+        keyboard_copy_keys(grid, &[direction]);
+        for character in query.chars() {
+            keyboard_copy_keys(grid, &[&character.to_string()]);
+        }
+        keyboard_copy_keys(grid, &["ENTER"]);
+    }
+
+    let mut grid = create_grid_with_size_and_raw(3, 40, "👨‍👩‍👧 👩 e\u{301} e".as_bytes());
+    assert!(grid.start_copy_mode(1));
+    keyboard_copy_keys(&mut grid, &["G", "$"]);
+    search(&mut grid, "?", "👩");
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["n", "v", "y"]).as_deref(),
+        Some("👩")
+    );
+
+    keyboard_copy_keys(&mut grid, &["ESC", "g", "g"]);
+    search(&mut grid, "/", "👨‍👩‍👧");
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["v", "y"]).as_deref(),
+        Some("👨‍👩‍👧")
+    );
+
+    keyboard_copy_keys(&mut grid, &["ESC", "g", "g"]);
+    search(&mut grid, "/", "e");
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["v", "y"]).as_deref(),
+        Some("e")
+    );
+
+    keyboard_copy_keys(&mut grid, &["ESC", "g", "g"]);
+    search(&mut grid, "/", "e\u{301}");
+    assert_eq!(
+        keyboard_copy_keys(&mut grid, &["v", "y"]).as_deref(),
+        Some("e\u{301}")
+    );
+
+    keyboard_copy_keys(&mut grid, &["ESC", "g", "g", "v"]);
+    let before = grid.copy_mode_cursor(Some(1));
+    search(&mut grid, "/", "\u{301}");
+    assert_eq!(grid.copy_mode_cursor(Some(1)), before);
+    assert!(grid
+        .copy_mode
+        .as_ref()
+        .unwrap()
+        .label()
+        .contains("Not found"));
+    assert_eq!(keyboard_copy_keys(&mut grid, &["y"]).as_deref(), Some("👨‍👩‍👧"));
+}
