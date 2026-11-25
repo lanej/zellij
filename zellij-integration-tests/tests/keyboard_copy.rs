@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use zellij_integration_tests::{keys, FakePtyHandle, TestRunner, TestSession, TERMINAL_SIZE};
+use zellij_integration_tests::{keys, FakePtyHandle, Size, TestRunner, TestSession, TERMINAL_SIZE};
 
 const CONFIG: &str = r#"
 mouse_mode false
@@ -13,12 +13,18 @@ keybinds clear-defaults=true {
     }
     copy {
         bind "Esc" { CopyModeInput "ESC"; }
+        bind "s" { SwitchToMode "Normal"; }
+        bind "Ctrl h" { SwitchToMode "Normal"; }
     }
 }
 "#;
 
 fn start(content: &[u8], marker: &str) -> (TestSession, FakePtyHandle) {
-    let zellij = TestRunner::new(TERMINAL_SIZE).with_config(CONFIG).start();
+    start_with_size(content, marker, TERMINAL_SIZE)
+}
+
+fn start_with_size(content: &[u8], marker: &str, size: Size) -> (TestSession, FakePtyHandle) {
+    let zellij = TestRunner::new(size).with_config(CONFIG).start();
     let terminal = zellij.expect_pty_spawn();
     terminal.output(content);
     zellij.wait_until("terminal output rendered", |grid| grid.contains(marker));
@@ -111,4 +117,45 @@ fn keyboard_copy_peer_scroll_cannot_change_the_selected_text() {
     zellij.send_stdin(b"y");
     expect_copy(&zellij, "beta");
     zellij.quit();
+}
+
+#[test]
+fn keyboard_copy_search_captures_bound_keys_and_preserves_visual_selection() {
+    let (mut zellij, _terminal) = start(b"alpha search beta search\r\nREADY", "READY");
+    zellij.send_stdin(b"ggv/searchx\x08\rney");
+    expect_copy(&zellij, "alpha search beta search");
+    zellij.wait_until("search yank returned to application", |grid| {
+        !grid.contains("VISUAL") && !grid.contains("COPY")
+    });
+    zellij.quit();
+}
+
+#[test]
+fn keyboard_copy_backward_search_cancellation_and_no_match_recover() {
+    for size in [TERMINAL_SIZE, Size { cols: 40, rows: 12 }] {
+        let (mut zellij, _terminal) = start_with_size(b"alpha beta gamma\r\nREADY", "READY", size);
+        zellij.send_stdin(b"?beta");
+        let query = zellij.wait_until("backward query appears in native frame", |grid| {
+            grid.contains("?beta")
+        });
+        println!("SEARCH QUERY GRID:\n{}", query.text);
+        zellij.send_stdin(b"\r");
+        zellij.wait_until("submitted search stays in copy mode", |grid| {
+            grid.contains("COPY") && !grid.contains("?beta")
+        });
+        zellij.send_stdin(b"/missing\r");
+        let missing = zellij.wait_until("missing query is visible", |grid| {
+            grid.contains("Not found")
+        });
+        println!("MISSING PATTERN GRID:\n{}", missing.text);
+        zellij.send_stdin(b"v/cancel");
+        zellij.send_stdin(b"\x1b");
+        let selection = zellij.wait_until("cancel preserves visual selection", |grid| {
+            grid.contains("VISUAL") && !grid.contains("/cancel")
+        });
+        println!("PRESERVED SELECTION GRID:\n{}", selection.text);
+        zellij.send_stdin(b"ey");
+        expect_copy(&zellij, "beta");
+        zellij.quit();
+    }
 }

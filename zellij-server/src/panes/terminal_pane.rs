@@ -872,6 +872,9 @@ impl Pane for TerminalPane {
     > {
         self.grid.copy_mode_plugin(request, client_id, plugin_id)
     }
+    fn copy_mode_search_active(&self, client_id: ClientId) -> bool {
+        self.grid.copy_mode_search_active(client_id)
+    }
     fn copy_mode_session_id(&self, client_id: ClientId) -> Option<u64> {
         self.grid.copy_mode_session_id(client_id)
     }

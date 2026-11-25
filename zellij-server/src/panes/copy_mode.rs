@@ -1,5 +1,5 @@
 //! Keyboard navigation over a frozen pane, using native rows and selection rendering.
-use super::grapheme_join::unit_column_spans;
+use super::grapheme_join::{is_boundary_at, unit_column_spans};
 use super::grid::{Grid, Row};
 use super::selection::Selection;
 use crate::plugins::PluginId;
@@ -12,6 +12,14 @@ static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 struct Point {
     row: usize,
     column: usize,
+}
+
+#[derive(Clone)]
+struct Search {
+    query: String,
+    forward: bool,
+    count: usize,
+    matches: Vec<Point>,
 }
 
 #[derive(Clone)]
@@ -29,6 +37,9 @@ pub struct CopyMode {
     goal_column: usize,
     count: Option<usize>,
     pending_g: bool,
+    search_entry: Option<Search>,
+    last_search: Option<Search>,
+    search_status: Option<&'static str>,
 }
 
 pub enum CopyModeResult {
@@ -54,7 +65,7 @@ impl CopyMode {
             "VISUAL"
         };
         format!(
-            "{} {}/{}{}{}",
+            "{} {}/{}{}{}{}",
             kind,
             self.cursor.row + 1,
             self.rows.len(),
@@ -63,6 +74,17 @@ impl CopyMode {
                 " · JUMP"
             } else {
                 ""
+            },
+            if let Some(search) = &self.search_entry {
+                format!(
+                    " · {}{}",
+                    if search.forward { '/' } else { '?' },
+                    search.query
+                )
+            } else {
+                self.search_status
+                    .map(|status| format!(" · {status}"))
+                    .unwrap_or_default()
             }
         )
     }
@@ -248,7 +270,120 @@ impl CopyMode {
         Some(text)
     }
 
+    fn search_matches(&self, query: &str) -> Vec<Point> {
+        let mut text = String::new();
+        for (index, row) in self.rows.iter().enumerate() {
+            if index > 0 && row.is_canonical {
+                text.push('\n');
+            }
+            for cell in &row.columns {
+                cell.push_text_to(&mut text);
+            }
+        }
+        let mut offsets = text
+            .char_indices()
+            .filter(|(offset, _)| {
+                text[*offset..].starts_with(query)
+                    && is_boundary_at(&text, *offset)
+                    && is_boundary_at(&text, *offset + query.len())
+            })
+            .map(|(offset, _)| offset)
+            .peekable();
+        let mut matches = vec![];
+        let mut byte_offset = 0;
+        let mut cell_text = String::new();
+        // rationale: Only matches need coordinates; a per-byte map multiplies large scrollback storage.
+        for (row_index, row) in self.rows.iter().enumerate() {
+            if row_index > 0 && row.is_canonical {
+                byte_offset += 1;
+            }
+            let units = self.units(row_index);
+            let mut column = 0;
+            for cell in &row.columns {
+                cell_text.clear();
+                cell.push_text_to(&mut cell_text);
+                let end = byte_offset + cell_text.len();
+                while offsets.peek().is_some_and(|offset| *offset < end) {
+                    offsets.next();
+                    matches.push(Point {
+                        row: row_index,
+                        column: units[units
+                            .partition_point(|(start, _)| *start <= column)
+                            .saturating_sub(1)]
+                        .0,
+                    });
+                }
+                byte_offset = end;
+                column += cell.width();
+            }
+        }
+        matches.dedup();
+        matches
+    }
+
+    fn find(&mut self, search: &Search, forward: bool, count: usize) {
+        let matches = &search.matches;
+        if matches.is_empty() {
+            self.search_status = Some("Not found");
+            return;
+        }
+        let index = if forward {
+            let first = matches.partition_point(|point| *point <= self.cursor) % matches.len();
+            (first + (count.saturating_sub(1) % matches.len())) % matches.len()
+        } else {
+            let first = matches.partition_point(|point| *point < self.cursor);
+            (first + matches.len() - 1 + matches.len() - (count.saturating_sub(1) % matches.len()))
+                % matches.len()
+        };
+        self.cursor = matches[index];
+        self.goal_column = self.cursor.column;
+        self.search_status = None;
+    }
+
+    fn search_input(&mut self, key: &str) {
+        let Some(mut search) = self.search_entry.take() else {
+            return;
+        };
+        match key {
+            "ESC" | "Esc" | "Ctrl c" => {},
+            "ENTER" | "Enter" => {
+                if search.query.is_empty() {
+                    if let Some(previous) = &self.last_search {
+                        search.query = previous.query.clone();
+                    }
+                }
+                if !search.query.is_empty() {
+                    search.matches = self.search_matches(&search.query);
+                    self.find(&search, search.forward, search.count);
+                    self.last_search = Some(search);
+                }
+            },
+            _ => {
+                match key {
+                    "BACKSPACE" | "Backspace" | "Ctrl h" => {
+                        search.query.pop();
+                    },
+                    "Ctrl u" => search.query.clear(),
+                    "SPACE" if search.query.len() < 4096 => search.query.push(' '),
+                    _ if key.chars().count() == 1
+                        && !key.chars().any(char::is_control)
+                        && search.query.len() + key.len() <= 4096 =>
+                    {
+                        search.query.push_str(key);
+                    },
+                    _ => {},
+                }
+                self.search_entry = Some(search);
+            },
+        }
+    }
+
     fn input(&mut self, key: &str, width: usize, height: usize) -> CopyModeResult {
+        if self.search_entry.is_some() {
+            self.search_input(key);
+            return CopyModeResult::Continue;
+        }
+        self.search_status = None;
         if matches!(key, "ESC" | "Esc") && self.anchor.take().is_some() {
             self.count = None;
             self.pending_g = false;
@@ -284,6 +419,28 @@ impl CopyMode {
         let repeat = count.unwrap_or(1);
         let was_g = std::mem::take(&mut self.pending_g);
         match key {
+            "/" | "?" => {
+                self.search_entry = Some(Search {
+                    query: String::new(),
+                    forward: key == "/",
+                    count: repeat,
+                    matches: vec![],
+                });
+            },
+            "n" | "N" => {
+                if let Some(search) = self.last_search.take() {
+                    self.find(
+                        &search,
+                        if key == "n" {
+                            search.forward
+                        } else {
+                            !search.forward
+                        },
+                        repeat,
+                    );
+                    self.last_search = Some(search);
+                }
+            },
             "h" | "←" => {
                 for _ in 0..repeat.min(width) {
                     self.cursor.column = self
@@ -422,6 +579,9 @@ impl Grid {
             goal_column: column,
             count: None,
             pending_g: false,
+            search_entry: None,
+            last_search: None,
+            search_status: None,
         };
         mode.cursor.column = mode.snap_column(mode.cursor.row, column);
         mode.goal_column = mode.cursor.column;
@@ -429,6 +589,12 @@ impl Grid {
         self.reset_selection();
         self.mark_for_rerender();
         true
+    }
+
+    pub fn copy_mode_search_active(&self, client_id: ClientId) -> bool {
+        self.copy_mode.as_ref().is_some_and(|mode| {
+            mode.owner == client_id && !mode.invalidated && mode.search_entry.is_some()
+        })
     }
 
     pub fn copy_mode_session_id(&self, client_id: ClientId) -> Option<u64> {
