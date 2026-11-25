@@ -559,13 +559,15 @@ impl<'a> PaneContentsAndUi<'a> {
             self.pane
                 .frame_color_override()
                 .map(|override_color| (override_color, 4))
+        } else if pane_focused_for_client_id && mode == InputMode::Copy {
+            Some((self.style.colors.frame_highlight.emphasis_0, 3))
         } else if pane_is_in_group && !pane_focused_for_client_id {
             Some((self.style.colors.frame_highlight.emphasis_0, 2))
         } else if pane_is_in_group && pane_focused_for_client_id {
             Some((self.style.colors.frame_highlight.emphasis_1, 3))
         } else if pane_focused_for_client_id {
             match mode {
-                InputMode::Normal | InputMode::Locked => {
+                InputMode::Normal | InputMode::Locked | InputMode::Tmux => {
                     if session_is_mirrored || !self.multiple_users_exist_in_session {
                         Some((self.style.colors.frame_selected.base, 3))
                     } else {

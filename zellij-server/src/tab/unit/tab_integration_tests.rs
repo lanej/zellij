@@ -1051,6 +1051,13 @@ use crate::vt_parser;
 use insta::assert_snapshot;
 
 fn take_snapshot(ansi_instructions: &str, rows: usize, columns: usize, palette: Palette) -> String {
+    format!(
+        "{:?}",
+        rendered_grid(ansi_instructions, rows, columns, palette)
+    )
+}
+
+fn rendered_grid(ansi_instructions: &str, rows: usize, columns: usize, palette: Palette) -> Grid {
     let sixel_image_store = Rc::new(RefCell::new(SixelImageStore::default()));
     let terminal_emulator_color_codes = Rc::new(RefCell::new(HashMap::new()));
     let character_cell_size = Rc::new(RefCell::new(Some(SizeInPixels {
@@ -1080,7 +1087,7 @@ fn take_snapshot(ansi_instructions: &str, rows: usize, columns: usize, palette: 
     );
     let mut vte_parser = vt_parser::Parser::new();
     vte_parser.feed(&mut grid, ansi_instructions.as_bytes());
-    format!("{:?}", grid)
+    grid
 }
 
 fn take_snapshot_with_sixel(
@@ -18144,6 +18151,119 @@ fn a_per_pane_border_style_is_drawn_on_the_pane_frame() {
     assert!(snapshot.contains('╔'), "{}", snapshot);
     assert!(snapshot.contains('║'), "{}", snapshot);
     assert!(snapshot.contains('╝'), "{}", snapshot);
+}
+
+#[test]
+fn prefix_frames_the_window_without_replacing_the_bar_or_highlighting_splits() {
+    let size = Size { cols: 60, rows: 12 };
+    let layout = r#"layout {
+        pane size=1 borderless=true
+        pane split_direction="vertical" {
+            pane focus=true
+            pane
+        }
+    }"#;
+    let mut tab = create_new_tab_with_layout(size, ModeInfo::default(), layout);
+    tab.handle_pty_bytes(0, b"one | two".to_vec()).unwrap();
+    let render = |tab: &mut Tab| {
+        let mut output = Output::default();
+        tab.render(&mut output, None).unwrap();
+        output.serialize().unwrap()[&1].ansi().to_owned()
+    };
+    let mut frames = render(&mut tab);
+    let grid = |frames: &str| rendered_grid(frames, size.rows, size.cols, Palette::default());
+    let normal = grid(&frames);
+    let mut mode = ModeInfo::default();
+    mode.mode = InputMode::Tmux;
+    let accent = Some(mode.style.colors.frame_highlight.emphasis_0.into());
+    tab.change_mode_info(mode, 1);
+    frames.push_str(&render(&mut tab));
+
+    // Update the idle window while it is waiting, including the borderless top row.
+    tab.handle_pty_bytes(2, b"second pane".to_vec()).unwrap();
+    tab.handle_pty_bytes(0, b"\rtwo | one".to_vec()).unwrap();
+    frames.push_str(&render(&mut tab));
+    let waiting = grid(&frames);
+    assert_eq!(
+        waiting.viewport[0]
+            .columns
+            .iter()
+            .take(9)
+            .map(|c| c.character)
+            .collect::<String>(),
+        "two | one"
+    );
+    for col in 0..size.cols {
+        assert_eq!(
+            waiting.viewport[0].columns[col].styles.underline,
+            Some(crate::panes::AnsiCode::Underline(None))
+        );
+        assert_eq!(
+            waiting.viewport[size.rows - 1].columns[col]
+                .styles
+                .foreground,
+            accent
+        );
+    }
+    for col in [0, size.cols - 1] {
+        assert_eq!(waiting.viewport[4].columns[col].styles.foreground, accent);
+    }
+    assert_eq!(
+        waiting.viewport[4].columns[1..size.cols - 1],
+        normal.viewport[4].columns[1..size.cols - 1]
+    );
+
+    tab.change_mode_info(ModeInfo::default(), 1);
+    frames.push_str(&render(&mut tab));
+    let restored = grid(&frames);
+    assert_eq!(restored.viewport[4].columns, normal.viewport[4].columns);
+    assert_eq!(
+        restored.viewport[size.rows - 1].columns,
+        normal.viewport[size.rows - 1].columns
+    );
+    assert_eq!(
+        restored.viewport[0].columns[0].styles,
+        normal.viewport[0].columns[0].styles
+    );
+}
+
+#[test]
+fn keyboard_copy_emphasizes_the_pane_frame_only_for_its_owner() {
+    let mut tab = create_new_tab(Size { cols: 50, rows: 10 }, ModeInfo::default());
+    tab.add_client(2, None).unwrap();
+    assert!(tab.start_copy_mode(1));
+    tab.change_mode_info(
+        ModeInfo {
+            mode: InputMode::Copy,
+            ..Default::default()
+        },
+        1,
+    );
+
+    // A resize cancels the selection, but the next key is still handled by Copy.
+    let size = Size { cols: 40, rows: 10 };
+    tab.resize_whole_tab(size).unwrap();
+    let mut output = Output::default();
+    tab.render(&mut output, None).unwrap();
+    let serialized = output.serialize().unwrap();
+    let colors = Style::default().colors;
+    for (client, frame_color) in [
+        (1, colors.frame_highlight.emphasis_0),
+        (2, colors.frame_selected.base),
+    ] {
+        let grid = rendered_grid(
+            serialized[&client].ansi(),
+            size.rows,
+            size.cols,
+            Palette::default(),
+        );
+        for (x, y) in [(0, 0), (0, 2), (size.cols - 1, 2), (4, size.rows - 1)] {
+            assert_eq!(
+                grid.viewport[y].columns[x].styles.foreground,
+                Some(frame_color.into())
+            );
+        }
+    }
 }
 
 #[test]

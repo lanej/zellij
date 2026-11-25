@@ -30,7 +30,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     str,
 };
-use zellij_utils::data::{HighlightLayer, PaneContents, PaneRenderReport};
+use zellij_utils::data::{HighlightLayer, PaneContents, PaneRenderReport, StyleDeclaration};
 use zellij_utils::errors::prelude::*;
 use zellij_utils::pane_size::SizeInPixels;
 use zellij_utils::pane_size::{PaneGeom, Size};
@@ -2092,6 +2092,56 @@ impl Output {
             }
         }
         Ok(())
+    }
+    /// Style the composed frame so floating panes and borderless bars keep their
+    /// content, coordinates and hit targets. Only this client's output is decorated.
+    pub fn style_window_frame(&mut self, client_id: ClientId, size: Size, style: StyleDeclaration) {
+        let Some(chunks) = self.client_character_chunks.get_mut(&client_id) else {
+            return;
+        };
+        let panes = self
+            .client_pane_rects
+            .get(&client_id)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let color = AnsiCode::from(style.emphasis_0);
+        for chunk in chunks {
+            // A cached row shift could move a decorated horizontal edge into the interior.
+            if chunk
+                .row_shift
+                .is_some_and(|s| s.top == 0 || s.top + s.height == size.rows)
+            {
+                chunk.row_shift = None;
+            }
+            let horizontal = chunk.y == 0 || chunk.y + 1 == size.rows;
+            let mut x = chunk.x;
+            for cell in &mut chunk.terminal_characters {
+                let end = x + cell.width();
+                if horizontal || x == 0 || end == size.cols {
+                    let (col, row) = (x as u16, chunk.y as u16);
+                    let in_frame = panes
+                        .iter()
+                        .rev()
+                        .find(|(pane, _)| pane.contains(col, row))
+                        .is_some_and(|(pane, _)| !pane.content_contains(col, row));
+                    cell.styles.update(|styles| {
+                        if in_frame {
+                            styles.foreground = Some(color);
+                        } else if horizontal {
+                            // Underlining preserves the text and colors of full-width bars.
+                            styles.underline = Some(AnsiCode::Underline(None));
+                            styles.underline_color = Some(color);
+                        } else {
+                            // A borderless pane may have application text at the side edge.
+                            styles.background = Some(color);
+                            styles.foreground = Some(AnsiCode::from(style.background));
+                            styles.reverse = Some(AnsiCode::Reset);
+                        }
+                    });
+                }
+                x = end;
+            }
+        }
     }
     pub fn add_character_chunks_to_multiple_clients(
         &mut self,
