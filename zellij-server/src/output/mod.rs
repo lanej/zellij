@@ -1956,6 +1956,7 @@ fn append_sideband_instruction(sideband: &mut Vec<u8>, instruction: &str) {
 
 #[derive(Clone, Debug, Default)]
 pub struct Output {
+    window_frames: HashMap<ClientId, (Size, StyleDeclaration)>,
     pre_vte_instructions: HashMap<ClientId, Vec<String>>,
     post_vte_instructions: HashMap<ClientId, Vec<String>>,
     client_character_chunks: HashMap<ClientId, Vec<CharacterChunk>>,
@@ -2093,9 +2094,20 @@ impl Output {
         }
         Ok(())
     }
+    pub fn set_window_frame(&mut self, client_id: ClientId, size: Size, style: StyleDeclaration) {
+        self.window_frames.insert(client_id, (size, style));
+    }
+
+    pub fn window_frame_size(&self, client_id: ClientId) -> Option<Size> {
+        self.window_frames.get(&client_id).map(|(size, _)| *size)
+    }
+
     /// Style the composed frame so floating panes and borderless bars keep their
     /// content, coordinates and hit targets. Only this client's output is decorated.
-    pub fn style_window_frame(&mut self, client_id: ClientId, size: Size, style: StyleDeclaration) {
+    pub fn style_window_frame(&mut self, client_id: ClientId) {
+        let Some((size, style)) = self.window_frames.remove(&client_id) else {
+            return;
+        };
         let Some(chunks) = self.client_character_chunks.get_mut(&client_id) else {
             return;
         };

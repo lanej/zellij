@@ -425,6 +425,7 @@ impl<'a> PaneContentsAndUi<'a> {
         let border_style = self.border_style(pane_is_floating);
         let frame_params = if session_is_mirrored {
             FrameParams {
+                window_frame: self.output.window_frame_size(client_id),
                 focused_client,
                 is_main_client: pane_focused_for_client_id,
                 other_focused_clients: vec![],
@@ -457,6 +458,7 @@ impl<'a> PaneContentsAndUi<'a> {
             }
         } else {
             FrameParams {
+                window_frame: self.output.window_frame_size(client_id),
                 focused_client,
                 is_main_client: pane_focused_for_client_id,
                 other_focused_client_slots: other_focused_clients

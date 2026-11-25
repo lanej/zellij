@@ -6099,6 +6099,16 @@ impl Tab {
             self.link_handler.clone(),
             floating_panes_stack,
         );
+        for client_id in &connected_clients {
+            if let Some(style) = self
+                .mode_info
+                .borrow()
+                .get(client_id)
+                .and_then(Self::prefix_frame_style)
+            {
+                output.set_window_frame(*client_id, *self.display_area.borrow(), style);
+            }
+        }
         self.set_popup_covers(output);
         let display_will_be_cleared = self.should_clear_display_before_rendering;
 
@@ -6153,14 +6163,7 @@ impl Tab {
         }
 
         for client_id in &connected_clients {
-            if let Some(style) = self
-                .mode_info
-                .borrow()
-                .get(client_id)
-                .and_then(Self::prefix_frame_style)
-            {
-                output.style_window_frame(*client_id, *self.display_area.borrow(), style);
-            }
+            output.style_window_frame(*client_id);
         }
         self.render_cursor(output, client_id_override.is_none());
         if output.has_rendered_assets() {

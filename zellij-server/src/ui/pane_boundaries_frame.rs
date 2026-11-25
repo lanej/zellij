@@ -12,7 +12,7 @@ use crate::ui::hint_text::{
 use crate::ClientId;
 use zellij_utils::data::{client_slot_to_colors, BorderStyle, LineStyle, PaletteColor, Style};
 use zellij_utils::errors::prelude::*;
-use zellij_utils::pane_size::{Offset, PaneGeom, Viewport};
+use zellij_utils::pane_size::{Offset, PaneGeom, Size, Viewport};
 use zellij_utils::position::Position;
 
 use unicode_width::UnicodeWidthStr;
@@ -110,6 +110,7 @@ pub fn stack_list_row_filler(
 }
 
 pub struct FrameParams {
+    pub window_frame: Option<Size>,
     pub focused_client: Option<ClientId>,
     pub is_main_client: bool, // more accurately: is_focused_for_main_client
     pub other_focused_clients: Vec<ClientId>,
@@ -141,6 +142,7 @@ pub struct FrameParams {
 
 #[derive(Default, PartialEq)]
 pub struct PaneFrame {
+    window_frame: Option<Size>,
     pub geom: Viewport,
     pub title: String,
     pub scroll_position: (usize, usize), // (position, length)
@@ -191,6 +193,7 @@ impl PaneFrame {
         frame_params: FrameParams,
     ) -> Self {
         PaneFrame {
+            window_frame: frame_params.window_frame,
             geom,
             title: main_title,
             scroll_position,
@@ -295,6 +298,31 @@ impl PaneFrame {
             boundary_type::BOTTOM_LEFT => Corner::BottomLeft,
             _ => Corner::BottomRight,
         };
+        // Where a pane corner meets a straight window edge, continue that edge
+        // using the pane's actual horizontal or vertical line style.
+        if let Some(window) = self.window_frame.filter(|_| self.should_draw_pane_frames) {
+            let outer_x = match style_corner {
+                Corner::TopLeft | Corner::BottomLeft => self.geom.x == 0,
+                Corner::TopRight | Corner::BottomRight => {
+                    self.geom.x + self.geom.cols == window.cols
+                },
+            };
+            let outer_y = match style_corner {
+                Corner::TopLeft | Corner::TopRight => self.geom.y == 0,
+                Corner::BottomLeft | Corner::BottomRight => {
+                    self.geom.y + self.geom.rows == window.rows
+                },
+            };
+            match (outer_x, outer_y) {
+                (true, false) => {
+                    return border_glyphs::vertical(self.vertical_style_of_corner(style_corner))
+                },
+                (false, true) => {
+                    return border_glyphs::horizontal(self.horizontal_style_of_corner(style_corner))
+                },
+                _ => {},
+            }
+        }
         let shape_corner = if self.pane_is_stacked_under {
             match style_corner {
                 Corner::TopRight => Corner::BottomRight,
@@ -1646,6 +1674,7 @@ mod tests {
             (0, 0),
             String::new(),
             FrameParams {
+                window_frame: None,
                 focused_client: None,
                 is_main_client: true,
                 other_focused_clients: vec![],

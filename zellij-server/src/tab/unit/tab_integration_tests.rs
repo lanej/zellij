@@ -18160,10 +18160,17 @@ fn prefix_frames_the_window_without_replacing_the_bar_or_highlighting_splits() {
         pane size=1 borderless=true
         pane split_direction="vertical" {
             pane focus=true
-            pane
+            pane {
+                pane
+                pane
+            }
         }
     }"#;
     let mut tab = create_new_tab_with_layout(size, ModeInfo::default(), layout);
+    tab.set_pane_border_style(
+        PaneId::Terminal(1),
+        border_style_override(LineStyle::Double),
+    );
     tab.handle_pty_bytes(0, b"one | two".to_vec()).unwrap();
     let render = |tab: &mut Tab| {
         let mut output = Output::default();
@@ -18207,6 +18214,17 @@ fn prefix_frames_the_window_without_replacing_the_bar_or_highlighting_splits() {
     }
     for col in [0, size.cols - 1] {
         assert_eq!(waiting.viewport[4].columns[col].styles.foreground, accent);
+    }
+    for col in 1..size.cols - 1 {
+        let expected = if col < size.cols / 2 { '═' } else { '─' };
+        assert_eq!(
+            waiting.viewport[size.rows - 1].columns[col].character,
+            expected
+        );
+    }
+    for row in 1..size.rows - 1 {
+        assert_eq!(waiting.viewport[row].columns[0].character, '║');
+        assert_eq!(waiting.viewport[row].columns[size.cols - 1].character, '│');
     }
     assert_eq!(
         waiting.viewport[4].columns[1..size.cols - 1],

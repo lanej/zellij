@@ -259,7 +259,8 @@ fn prefix_frame_preserves_borderless_content_without_pane_geometry() {
     output
         .add_character_chunks_to_multiple_clients(chunks, clients.into_iter(), None)
         .unwrap();
-    output.style_window_frame(1, size, style);
+    output.set_window_frame(1, size, style);
+    output.style_window_frame(1);
 
     let decorated = &output.client_character_chunks[&1];
     let original = &output.client_character_chunks[&2];
