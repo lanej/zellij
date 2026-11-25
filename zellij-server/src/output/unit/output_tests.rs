@@ -237,6 +237,56 @@ fn test_has_rendered_assets_with_sixel_chunks() {
 }
 
 #[test]
+fn prefix_frame_preserves_borderless_content_without_pane_geometry() {
+    let mut output = create_test_output();
+    let clients = create_test_clients(2);
+    output.add_clients(&clients, Rc::new(RefCell::new(LinkHandler::new())), None);
+    let size = Size { rows: 3, cols: 6 };
+    let style = zellij_utils::data::Style::default().colors.frame_highlight;
+    let mut chunks = vec![
+        create_character_chunk_from_str("header", 0, 0),
+        create_character_chunk_from_str("界go界", 0, 1),
+        create_character_chunk_from_str("footer", 0, 2),
+    ];
+    chunks[1].row_shift = Some(super::super::RowShift {
+        x: 0,
+        top: 0,
+        width: size.cols,
+        height: size.rows,
+        lines: 1,
+        moved: true,
+    });
+    output
+        .add_character_chunks_to_multiple_clients(chunks, clients.into_iter(), None)
+        .unwrap();
+    output.set_window_frame(1, size, style);
+    output.style_window_frame(1);
+
+    let decorated = &output.client_character_chunks[&1];
+    let original = &output.client_character_chunks[&2];
+    let accent = Some(AnsiCode::from(style.emphasis_0));
+    for y in [0, 2] {
+        for cell in &decorated[y].terminal_characters {
+            assert_eq!(cell.styles.underline_color, accent);
+        }
+    }
+    let row = &decorated[1].terminal_characters;
+    assert_eq!(
+        row.iter().map(|c| c.character).collect::<String>(),
+        "界go界"
+    );
+    assert_eq!(row[0].styles.background, accent);
+    assert_eq!(row[3].styles.background, accent);
+    assert_eq!(row[1..3], original[1].terminal_characters[1..3]);
+    assert_ne!(
+        row[0].styles.background,
+        original[1].terminal_characters[0].styles.background
+    );
+    assert!(decorated[1].row_shift.is_none());
+    assert!(original[1].row_shift.is_some());
+}
+
+#[test]
 fn test_serialize_empty() {
     let mut output = create_test_output();
     let result = output.serialize().unwrap();

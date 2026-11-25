@@ -78,7 +78,10 @@ use std::{
     sync::Arc,
 };
 use zellij_utils::{
-    data::{Event, FloatingPaneCoordinates, InputMode, ModeInfo, Palette, PaletteColor, Styling},
+    data::{
+        Event, FloatingPaneCoordinates, InputMode, ModeInfo, Palette, PaletteColor,
+        StyleDeclaration, Styling,
+    },
     input::{
         command::TerminalAction,
         layout::{
@@ -3052,8 +3055,22 @@ impl Tab {
         Ok(())
     }
 
+    fn prefix_frame_style(mode: &ModeInfo) -> Option<StyleDeclaration> {
+        (mode.mode == InputMode::Tmux
+            && mode.session_dimmed != Some(true)
+            && mode.session_ascended != Some(true))
+        .then_some(mode.style.colors.frame_highlight)
+    }
+
     pub fn change_mode_info(&mut self, mode_info: ModeInfo, client_id: ClientId) {
-        self.mode_info.borrow_mut().insert(client_id, mode_info);
+        let style = Self::prefix_frame_style(&mode_info);
+        let previous = self.mode_info.borrow_mut().insert(client_id, mode_info);
+        if self.connected_clients.borrow().contains(&client_id)
+            && style != previous.as_ref().and_then(Self::prefix_frame_style)
+        {
+            // An incremental application render may never touch the outer cells.
+            self.set_force_render();
+        }
     }
 
     pub fn add_multiple_clients(
@@ -6085,6 +6102,16 @@ impl Tab {
             self.link_handler.clone(),
             floating_panes_stack,
         );
+        for client_id in &connected_clients {
+            if let Some(style) = self
+                .mode_info
+                .borrow()
+                .get(client_id)
+                .and_then(Self::prefix_frame_style)
+            {
+                output.set_window_frame(*client_id, *self.display_area.borrow(), style);
+            }
+        }
         self.set_popup_covers(output);
         let display_will_be_cleared = self.should_clear_display_before_rendering;
 
@@ -6138,6 +6165,9 @@ impl Tab {
                 .with_context(err_context)?;
         }
 
+        for client_id in &connected_clients {
+            output.style_window_frame(*client_id);
+        }
         self.render_cursor(output, client_id_override.is_none());
         if output.has_rendered_assets() {
             self.hide_cursor_and_clear_display_as_needed(output);
